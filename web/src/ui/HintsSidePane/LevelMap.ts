@@ -7,7 +7,7 @@ import { CPU6502 } from '@whscullin/cpu6502';
  * EmulatorController.ts. Specific to this exact assembled binary; re-check
  * if web/public/disks/* is ever rebuilt from source.
  */
-const LEVEL_ADDRESS = 0x03f4;
+export const LEVEL_ADDRESS = 0x03f4;
 
 interface LevelEntry {
     value: number;

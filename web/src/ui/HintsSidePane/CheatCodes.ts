@@ -102,7 +102,7 @@ export function renderCheatCodes(container: HTMLElement): void {
 
     const intro = document.createElement('p');
     intro.className = 'cheat-intro';
-    intro.textContent = "Jordan Mechner's own debug/cheat key bindings, straight from the source.";
+    intro.textContent = "Jordan Mechner's own debug/cheat key bindings from the source. All of these are active in this build (DebugKeys=1).";
     container.appendChild(intro);
 
     container.appendChild(buildList(ALWAYS_ACTIVE, 'cheat-list'));

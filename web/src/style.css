@@ -188,6 +188,49 @@ canvas#screen {
     color: #6cf;
 }
 
+.room-map-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #333;
+}
+
+.room-map-grid-wrap {
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+}
+
+.room-map-grid {
+    display: grid;
+    gap: 3px;
+}
+
+.room-map-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    background: #1e2f38;
+    border: 1px solid #345;
+    color: #9db;
+    font-size: 0.65rem;
+}
+
+.room-map-cell.room-map-frontier {
+    background: transparent;
+    border: 1px dashed #333;
+}
+
+.room-map-cell.room-map-hidden {
+    visibility: hidden;
+}
+
+.room-map-cell.room-map-current {
+    background: #26414d;
+    border: 2px solid #6cf;
+    color: #fff;
+    font-weight: 700;
+}
+
 .hints-root-link {
     display: block;
     margin-bottom: 0.75rem;
@@ -227,8 +270,8 @@ canvas#screen {
     bottom: 8px;
     left: 50%;
     transform: translateX(-50%);
-    width: 118px;
-    height: 83px;
+    width: 236px;
+    height: 166px;
     box-sizing: border-box;
     border: 2px solid #6cf;
     background: #000;
