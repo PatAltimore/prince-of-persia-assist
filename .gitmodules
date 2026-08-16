@@ -1,0 +1,6 @@
+[submodule "build-tooling/pop-build"]
+	path = build-tooling/pop-build
+	url = https://github.com/adamgreen/Prince-of-Persia-Apple-II.git
+[submodule "web/vendor/apple2js"]
+	path = web/vendor/apple2js
+	url = https://github.com/whscullin/apple2js.git

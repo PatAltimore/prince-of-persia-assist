@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prince of Persia — pop-assist</title>
+    <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+    <div id="app">
+        <header class="app-header">
+            <h1>Prince of Persia <span class="subtitle">Apple II, 1989</span></h1>
+        </header>
+        <main class="app-main">
+            <div class="game-pane">
+                <div class="canvas-wrap">
+                    <canvas id="screen" width="592" height="416" tabindex="0"></canvas>
+                    <img id="rewind-thumbnail" class="rewind-thumbnail" hidden alt="Rewind preview" />
+                </div>
+                <div class="controls">
+                    <button id="reset-btn">Reset</button>
+                    <button id="save-btn">Save Game</button>
+                    <button id="load-btn">Load Game</button>
+                    <span id="disk-status">Loading disk…</span>
+                </div>
+                <div class="rewind">
+                    <label for="rewind-slider">Rewind</label>
+                    <input id="rewind-slider" type="range" min="0" max="0" value="0" disabled />
+                    <button id="rewind-5s-btn" title="Rewind 5 seconds (Backspace)">⏪ -5s</button>
+                </div>
+                <div class="key-legend">
+                    <span><kbd>I</kbd> Up</span>
+                    <span><kbd>J</kbd> Left</span>
+                    <span><kbd>K</kbd> Down</span>
+                    <span><kbd>L</kbd> Right</span>
+                    <span><kbd>U</kbd> Up-left</span>
+                    <span><kbd>O</kbd> Up-right</span>
+                    <span><kbd>Esc</kbd> Pause</span>
+                    <span><kbd>⌫</kbd> Rewind 5s</span>
+                </div>
+            </div>
+            <aside id="hints-pane" class="hints-pane">
+                <div class="tabs" role="tablist">
+                    <button class="tab-btn" data-tab="cheats" role="tab">Cheats</button>
+                    <button class="tab-btn" data-tab="code" role="tab">Code</button>
+                    <button class="tab-btn" data-tab="map" role="tab">Map</button>
+                </div>
+                <div id="tab-panel-cheats" class="tab-panel" role="tabpanel"></div>
+                <div id="tab-panel-code" class="tab-panel" role="tabpanel" hidden></div>
+                <div id="tab-panel-map" class="tab-panel" role="tabpanel" hidden></div>
+            </aside>
+        </main>
+        <footer class="disclaimer">
+            The Prince of Persia Apple II source code was released by Jordan Mechner for study and personal use.
+            This does not grant rights to the Prince of Persia game itself — Ubisoft owns the Prince of Persia
+            franchise. This is a non-commercial, educational fan project, not affiliated with or endorsed by
+            Ubisoft or Jordan Mechner.
+        </footer>
+    </div>
+
+    <dialog id="save-dialog">
+        <form id="save-form" method="dialog">
+            <h2>Save Game</h2>
+            <label for="save-name-input">Name</label>
+            <input id="save-name-input" type="text" required maxlength="60" autocomplete="off" />
+            <p id="save-error" class="dialog-error" hidden></p>
+            <menu>
+                <button id="save-cancel-btn" type="button" value="cancel">Cancel</button>
+                <button id="save-confirm-btn" type="submit" value="save">Save</button>
+            </menu>
+        </form>
+    </dialog>
+
+    <dialog id="load-dialog">
+        <h2>Load Game</h2>
+        <ul id="load-list" class="save-list"></ul>
+        <p id="load-empty" class="dialog-empty" hidden>No saved games yet.</p>
+        <menu>
+            <button id="load-cancel-btn" type="button" value="cancel">Close</button>
+        </menu>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
