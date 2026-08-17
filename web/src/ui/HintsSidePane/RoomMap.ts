@@ -217,6 +217,12 @@ export function renderRoomMap(
     emptyState.textContent = 'Builds once you’re actually in a level (not the title/attract screen).';
     container.appendChild(emptyState);
 
+    // TEMPORARY: diagnosing https://github.com/PatAltimore/prince-of-persia-assist
+    // "map stuck on empty state during real gameplay" — remove once resolved.
+    const debugLine = document.createElement('p');
+    debugLine.className = 'room-map-debug';
+    container.appendChild(debugLine);
+
     const gridWrap = document.createElement('div');
     gridWrap.className = 'room-map-grid-wrap';
     gridWrap.hidden = true;
@@ -390,6 +396,8 @@ export function renderRoomMap(
         stableCount = screen === stableScreen ? stableCount + 1 : 1;
         stableScreen = screen;
 
+        let rebuilt = false;
+        let didRebuildAttempt: 'skipped' | 'ran' = 'skipped';
         if (needsRebuild) {
             // Wait for a few consecutive identical reads before trusting
             // this screen number and rebuilding from aux RAM — see
@@ -397,16 +405,22 @@ export function renderRoomMap(
             if (screen !== 0 && stableCount >= SCREEN_STABLE_TICKS) {
                 currentScreen = screen;
                 needsRebuild = false;
+                didRebuildAttempt = 'ran';
                 rebuild();
+                rebuilt = coords.size > 0;
             }
-            return;
-        }
-
-        if (screen !== 0 && screen !== currentScreen && coords.has(screen)) {
+        } else if (screen !== 0 && screen !== currentScreen && coords.has(screen)) {
             currentScreen = screen;
             visited.add(screen);
             renderVisibility();
         }
+
+        // TEMPORARY, see debugLine's declaration above.
+        debugLine.textContent =
+            `debug: rawLevel=${level} rawScreen=${screen} lastLevel=${lastLevel} ` +
+            `needsRebuild=${needsRebuild} stableScreen=${stableScreen} stableCount=${stableCount} ` +
+            `currentScreen=${currentScreen} coords=${coords.size} visited=${visited.size} ` +
+            `rebuildAttempt=${didRebuildAttempt} rebuiltOk=${rebuilt}`;
     };
 
     const debug = () => ({
