@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Prince of Persia — pop-assist</title>
+    <title>Prince of Persia — Assist mode</title>
     <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
     <div id="app">
         <header class="app-header">
-            <h1>Prince of Persia <span class="subtitle">Apple II, 1989</span></h1>
+            <h1>Prince of Persia <span class="subtitle">Assist mode</span></h1>
         </header>
         <main class="app-main">
             <div class="game-pane">
@@ -50,13 +50,13 @@
             </div>
             <aside id="hints-pane" class="hints-pane">
                 <div class="tabs" role="tablist">
+                    <button class="tab-btn" data-tab="map" role="tab">Map</button>
                     <button class="tab-btn" data-tab="cheats" role="tab">Cheats</button>
                     <button class="tab-btn" data-tab="code" role="tab">Code</button>
-                    <button class="tab-btn" data-tab="map" role="tab">Map</button>
                 </div>
-                <div id="tab-panel-cheats" class="tab-panel" role="tabpanel"></div>
+                <div id="tab-panel-map" class="tab-panel" role="tabpanel"></div>
+                <div id="tab-panel-cheats" class="tab-panel" role="tabpanel" hidden></div>
                 <div id="tab-panel-code" class="tab-panel" role="tabpanel" hidden></div>
-                <div id="tab-panel-map" class="tab-panel" role="tabpanel" hidden></div>
             </aside>
         </main>
         <footer class="disclaimer">
