@@ -76,6 +76,25 @@ export class RewindBuffer {
     clear(): void {
         this.entries = [];
     }
+
+    /**
+     * Discards every entry after `index` — call when gameplay resumes from
+     * a rewound point (scrubber release, rewind button/key). Without this,
+     * RewindRecorder keeps appending new snapshots by wall-clock time
+     * regardless of what the emulator is actually doing, so the entries
+     * recorded *before* the rewind but *after* the restored point are from
+     * a timeline that no longer happened — scrubbing into them would show
+     * stale, diverged gameplay, and the slider wouldn't reflect "now" until
+     * the next scheduled snapshot happened to land, up to intervalMs later.
+     */
+    truncateAfter(index: number): void {
+        // Clamped to the current length on both ends: setting .length past
+        // an array's current size doesn't truncate, it *grows* it with
+        // empty holes — never what a "discard the future" operation should
+        // do, so an out-of-range index is a no-op here, not silent
+        // corruption.
+        this.entries.length = Math.max(0, Math.min(index + 1, this.entries.length));
+    }
 }
 
 /**

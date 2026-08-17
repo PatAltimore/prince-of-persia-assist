@@ -1,5 +1,4 @@
 import { Apple2 } from 'js/apple2';
-import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
 
 /**
  * Memory addresses resolved from build-tooling/pop-build/obj/MASTER.LST,
@@ -13,16 +12,15 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  *   RAMRD softswitch, $C002/$C003) *many times per frame* while drawing
  *   the screen. That's frequent enough that a plain `cpu.read()` doesn't
  *   just occasionally glitch — in practice, every misread re-triggers the
- *   "wait for the level to settle" gate below, which blocks live
- *   screen-tracking for another LEVEL_LOAD_SETTLE_TICKS ticks each time,
- *   even though a perfectly good map is already built. So `level` is read
- *   via readMainByte() (bypassing whatever the live softswitch state
- *   happens to be) instead of cpu.read() — cheap enough to do every tick
- *   since it's a single byte, not a full apple2.getState() snapshot. The
- *   actual graph is always built from KidScrn (see below), never from
- *   `level` itself, so this only needs to be *reasonably* stable, not
- *   perfectly so — but "reasonably" still means "not glitching essentially
- *   every frame."
+ *   "wait for the level to settle" gate in update(), which blocks live
+ *   screen-tracking each time it fires, even though a perfectly good map
+ *   is already built. So `level` is read via readRamBank() (bypassing
+ *   whatever the live softswitch state happens to be) instead of
+ *   cpu.read() — cheap enough to do every tick since it's a single byte,
+ *   not a full apple2.getState() snapshot. The actual graph is always
+ *   built from KidScrn (see below), never from `level` itself, so this
+ *   only needs to be *reasonably* stable, not perfectly so — but
+ *   "reasonably" still means "not glitching essentially every frame."
  * - GAMEEQ.S's `KidScrn` ($005B, "611 KidScrn ds 1", part of the "dum Kid"
  *   per-character struct) is the screen the kid is actually standing on —
  *   confirmed by AUTO.S's guard-transfer logic, which reads it as "ldx
@@ -78,23 +76,13 @@ const PIECE_ID_SWORD = 22;
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
 
-// How many ticks to wait after a level change before trusting KidScrn and
-// rebuilding the map from aux RAM — the level's own load routine may still
-// be a few frames from finishing when `level` itself changes, and reading
-// the room-link table mid-load would bake in stale/partial data. This is a
-// flat delay, not a "wait for KidScrn to stop changing" gate: a real
-// player may already be walking away from the spawn point well within
-// this window, and KidScrn changing is expected, not a sign the read is
-// untrustworthy (see the file-level comment on KidScrn vs VisScrn).
-const LEVEL_LOAD_SETTLE_TICKS = 10;
-
 /**
- * Reads a single byte straight from the main RAM bank's live backing
- * array, bypassing whatever the live RAMRD/RAMWRT softswitch state
- * happens to be (see the file-level comment on `level`) — and bypassing
+ * Direct read-only access to a RAM bank's live backing array (0 = main,
+ * 1 = aux) — bypassing whatever the live RAMRD/RAMWRT softswitch state
+ * happens to be (see the file-level comment on `level`), and bypassing
  * the cost of `apple2.getState()`, which besides copying both 48KB RAM
- * banks also serializes CPU/video/IO/MMU state this doesn't need, so it's
- * cheap enough to call every tick.
+ * banks also serializes CPU/video/IO/MMU state this doesn't need. Cheap
+ * enough to call every tick.
  *
  * `ram` is a private field on Apple2 (js/apple2.ts), not part of its
  * public API — this project already reaches into it directly elsewhere
@@ -103,8 +91,8 @@ const LEVEL_LOAD_SETTLE_TICKS = 10;
  * pinned vendored dependency (web/vendor/apple2js), so this is a
  * deliberate, documented exception rather than an accident.
  */
-function readMainByte(apple2: Apple2, address: number): number | undefined {
-    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[0]?.mem[address];
+function readRamBank(apple2: Apple2, bank: 0 | 1): Uint8Array | undefined {
+    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[bank]?.mem;
 }
 
 interface ScreenLinks {
@@ -278,7 +266,10 @@ export function renderRoomMap(
     let lastLevel = -1;
     let pendingLevel = 0;
     let needsRebuild = true;
-    let ticksSinceLevelChange = 0;
+    // While waiting for a level's aux blueprint to finish loading (see
+    // update()), this is the room-link signature seen on the *previous*
+    // tick, so two consecutive ticks can be compared.
+    let pendingLinkSignature: string | undefined;
 
     const renderVisibility = () => {
         const frontier = new Set<number>();
@@ -329,7 +320,7 @@ export function renderRoomMap(
         cells = new Map();
         visited = new Set([currentScreen]);
 
-        const auxRam = captureSnapshot(apple2).ram?.[1]?.mem;
+        const auxRam = readRamBank(apple2, 1);
         links = auxRam ? readScreenLinks(auxRam) : new Map();
         important = auxRam ? readImportantScreens(auxRam) : new Map();
         coords = layoutScreens(links, currentScreen);
@@ -380,22 +371,44 @@ export function renderRoomMap(
         // the file-level comment). The rebuild itself is keyed off
         // KidScrn, which is what actually decides whether real map data
         // exists to show.
-        const level = readMainByte(apple2, LEVEL_ADDRESS);
+        const level = readRamBank(apple2, 0)?.[LEVEL_ADDRESS];
         if (level !== undefined && level !== lastLevel) {
             lastLevel = level;
             pendingLevel = level;
             needsRebuild = true;
-            ticksSinceLevelChange = 0;
+            pendingLinkSignature = undefined;
         }
 
         const screen = cpu.read(KIDSCRN_ADDRESS);
 
         if (needsRebuild) {
-            ticksSinceLevelChange++;
-            if (screen !== 0 && ticksSinceLevelChange >= LEVEL_LOAD_SETTLE_TICKS) {
+            if (screen === 0) {
+                return; // kid hasn't spawned into the new level yet
+            }
+            // Don't trust the room-link table the instant KidScrn becomes
+            // valid: after a level change, the level's own load routine
+            // (reading the new level's blueprint off the emulated disk)
+            // may still be filling in aux RAM for a while — real disk I/O
+            // latency, not a fixed number of frames, so a flat tick-count
+            // delay isn't reliable (this previously showed the *previous*
+            // level's stale layout after a fast level change, e.g. via
+            // the SKIP cheat). Instead, wait for this screen's room-link
+            // bytes to read the same on two consecutive ticks — once the
+            // load is done they stop changing, whereas mid-load reads
+            // that keep shifting won't match twice in a row.
+            const auxRam = readRamBank(apple2, 1);
+            const base = MAP_TABLE_AUX_ADDRESS + (screen - 1) * 4;
+            const signature = auxRam
+                ? `${screen}:${auxRam[base]},${auxRam[base + 1]},${auxRam[base + 2]},${auxRam[base + 3]}`
+                : undefined;
+
+            if (signature !== undefined && signature === pendingLinkSignature) {
                 currentScreen = screen;
                 needsRebuild = false;
+                pendingLinkSignature = undefined;
                 rebuild();
+            } else {
+                pendingLinkSignature = signature;
             }
             return;
         }
@@ -411,7 +424,7 @@ export function renderRoomMap(
         lastLevel,
         pendingLevel,
         needsRebuild,
-        ticksSinceLevelChange,
+        pendingLinkSignature,
         currentScreen,
         coordsSize: coords.size,
         visitedSize: visited.size,

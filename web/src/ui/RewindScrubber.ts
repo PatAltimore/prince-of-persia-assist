@@ -56,6 +56,9 @@ export function attachRewindScrubber(
     });
 
     slider.addEventListener('pointerup', () => {
+        if (scrubbing) {
+            buffer.truncateAfter(Number(slider.value));
+        }
         scrubbing = false;
         thumbnail.hidden = true;
         apple2.run();
@@ -117,6 +120,7 @@ export function attachRewindButton(
         }
         apple2.stop();
         restoreSnapshot(apple2, state);
+        buffer.truncateAfter(index);
         apple2.run();
         canvas.focus();
     };
