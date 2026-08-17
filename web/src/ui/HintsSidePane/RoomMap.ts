@@ -16,12 +16,29 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  *   map") turned a rare glitch into the map going permanently blank; using
  *   it only to *decide when to re-check* means an occasional bad read just
  *   costs one wasted rebuild attempt, not a stuck display — the actual
- *   graph is always built from VisScrn (see below), never from `level`
+ *   graph is always built from KidScrn (see below), never from `level`
  *   itself.
- * - GAMEEQ.S's `VisScrn` ($00CB, "469 VisScrn ds 1") is the screen
- *   currently on display — the reliable "current position" read (SCRNUM at
- *   $0023 is a scratch var CTRL.S/MOVER.S reuse for one-off per-character
- *   lookups, not a stable current-screen indicator).
+ * - GAMEEQ.S's `KidScrn` ($005B, "611 KidScrn ds 1", part of the "dum Kid"
+ *   per-character struct) is the screen the kid is actually standing on —
+ *   confirmed by AUTO.S's guard-transfer logic, which reads it as "ldx
+ *   KidScrn ;new scrn" exactly when the kid crosses into a fresh screen
+ *   during ordinary movement, and by TOPCTRL.S's level-transition checks
+ *   (e.g. "When kid falls off screen 1, cut to next level"), which compare
+ *   against it and must fire promptly during normal play.
+ *
+ *   `VisScrn` ($00CB) looks like the obvious choice by name and is *also*
+ *   real main zero page, but it turns out to be the wrong variable: the
+ *   only two `sta VisScrn` sites in the whole source are level-init (reset
+ *   to 0) and a scripted "cut to screen" routine used for guard-spawn/
+ *   cutscene-style forced transitions — it's never updated by ordinary
+ *   walking-triggered scrolling. That's exactly why the map used to build
+ *   correctly at level start (KidScrn and VisScrn coincidentally agree on
+ *   the spawn screen) but never advanced as the player moved: VisScrn
+ *   quietly never changes on foot, so the room the player *actually*
+ *   arrived at never got reflected here.
+ * - `SCRNUM` ($0023) also exists but CTRL.S/MOVER.S use it as a scratch
+ *   parameter for one-off per-character screen lookups, not a stable
+ *   current-screen indicator.
  * - Each level's 24-screen room-link table lives in *auxiliary* RAM: EQ.S
  *   groups `blueprnt` ($b700) under its "Auxmem" heading alongside the
  *   other bulk per-level data, swapped into the //e's aux 64K bank when a
@@ -43,7 +60,7 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  *   unused, so it's deliberately not treated as a second exit ID here.
  */
 const LEVEL_ADDRESS = 0x03f4;
-const VISSCRN_ADDRESS = 0x00cb;
+const KIDSCRN_ADDRESS = 0x005b;
 const MAP_TABLE_AUX_ADDRESS = 0xbea0;
 const BLUETYPE_AUX_ADDRESS = 0xb700;
 const SCREEN_COUNT = 24;
@@ -56,7 +73,7 @@ const PIECE_ID_SWORD = 22;
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
 
-// How many consecutive ticks VisScrn must hold the same nonzero value
+// How many consecutive ticks KidScrn must hold the same nonzero value
 // before a freshly-detected level change is trusted enough to rebuild the
 // map from aux RAM — the level's own load routine may still be a few
 // frames from finishing when `level` itself changes, and reading the
@@ -335,7 +352,7 @@ export function renderRoomMap(
         // `level` is read purely to notice "something changed, worth a
         // rebuild attempt" — never compared against a specific value (see
         // the file-level comment). The rebuild itself is keyed off
-        // VisScrn, which is what actually decides whether real map data
+        // KidScrn, which is what actually decides whether real map data
         // exists to show.
         const level = cpu.read(LEVEL_ADDRESS);
         if (level !== lastLevel) {
@@ -346,7 +363,7 @@ export function renderRoomMap(
             stableCount = 0;
         }
 
-        const screen = cpu.read(VISSCRN_ADDRESS);
+        const screen = cpu.read(KIDSCRN_ADDRESS);
         stableCount = screen === stableScreen ? stableCount + 1 : 1;
         stableScreen = screen;
 
