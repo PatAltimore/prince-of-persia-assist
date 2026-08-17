@@ -64,34 +64,6 @@ const CELL_HEIGHT_PX = 24;
 // still plenty responsive.
 const LEVEL_CHECK_INTERVAL_TICKS = 20;
 
-interface LevelEntry {
-    label: string;
-    note?: string;
-}
-
-/**
- * Sourced directly from TOPCTRL.S's comments and level-transition logic,
- * not guessed or pulled from outside references — see the git history of
- * this file for the full reasoning per level.
- */
-const LEVELS = new Map<number, LevelEntry>([
-    [0, { label: 'Demo', note: 'Attract-mode loop, not a real level' }],
-    [1, { label: 'Level 1', note: 'Starts without the sword' }],
-    [2, { label: 'Level 2' }],
-    [3, { label: 'Level 3', note: 'No separate background data in the build' }],
-    [4, { label: 'Level 4' }],
-    [5, { label: 'Level 5' }],
-    [6, { label: 'Level 6', note: 'Falling off screen 1 cuts straight to Level 7' }],
-    [7, { label: 'Level 7' }],
-    [8, { label: 'Level 8' }],
-    [9, { label: 'Level 9' }],
-    [10, { label: 'Level 10' }],
-    [11, { label: 'Level 11' }],
-    [12, { label: 'Level 12', note: 'Exiting screen 23 cuts straight to Level 13' }],
-    [13, { label: 'Level 13', note: 'Face the Grand Vizier Jaffar' }],
-    [14, { label: 'Epilogue', note: 'Rescue the Princess' }],
-]);
-
 interface ScreenLinks {
     left: number;
     right: number;
@@ -358,11 +330,17 @@ export function renderRoomMap(
         renderVisibility();
     };
 
-    const updateLevelLine = (level: number) => {
-        const entry = LEVELS.get(level);
-        levelLine.textContent = entry
-            ? entry.label + (entry.note ? ` — ${entry.note}` : '')
-            : `Level ${level}`;
+    /** Resets the display back to "not actually in a level" — used for level 0, the attract-mode demo loop. */
+    const showNoLevel = () => {
+        levelLine.textContent = '';
+        grid.innerHTML = '';
+        cells = new Map();
+        coords = new Map();
+        visited = new Set();
+        currentScreen = 0;
+        emptyState.hidden = false;
+        gridWrap.hidden = true;
+        legend.hidden = true;
     };
 
     const update = () => {
@@ -372,10 +350,17 @@ export function renderRoomMap(
             const level = readMainByte(apple2, LEVEL_ADDRESS);
             if (level !== undefined && level !== lastLevel) {
                 lastLevel = level;
-                updateLevelLine(level);
-                needsRebuild = true;
                 stableScreen = -1;
                 stableCount = 0;
+                if (level > 0) {
+                    levelLine.textContent = `Level ${level}`;
+                    needsRebuild = true;
+                } else {
+                    // Level 0 is the attract-mode demo loop, not a level the
+                    // player is actually on.
+                    needsRebuild = false;
+                    showNoLevel();
+                }
             }
         }
 
