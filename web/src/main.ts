@@ -4,7 +4,6 @@ import { attachKeyboard } from './emulator/keyboard';
 import { attachAutoDiskSwap, DiskSide } from './emulator/diskSwap';
 import { renderHintsSidePane } from './ui/HintsSidePane/HintsSidePane';
 import { renderCheatCodes } from './ui/HintsSidePane/CheatCodes';
-import { renderLevelMap } from './ui/HintsSidePane/LevelMap';
 import { renderRoomMap } from './ui/HintsSidePane/RoomMap';
 import { attachTabs } from './ui/HintsSidePane/Tabs';
 import { RewindBuffer, RewindRecorder } from './emulator/snapshot/RewindBuffer';
@@ -41,7 +40,6 @@ async function main() {
     const rewindBuffer = new RewindBuffer(REWIND_CAPACITY);
     let apple2Ref: Apple2 | undefined;
     let scrubberHandle: { syncRange: () => void } | undefined;
-    let levelMapHandle: { update: () => void } | undefined;
     let roomMapHandle: { update: () => void } | undefined;
     let diskSwapHandle: { onTick: () => void } | undefined;
     const recorder = new RewindRecorder(
@@ -55,12 +53,10 @@ async function main() {
         forceKeyboardControls(cpu);
         recorder.onTick();
         scrubberHandle?.syncRange();
-        levelMapHandle?.update();
         roomMapHandle?.update();
         diskSwapHandle?.onTick();
     });
     apple2Ref = apple2;
-    levelMapHandle = renderLevelMap(document.querySelector('#tab-panel-map')!, cpu);
     roomMapHandle = renderRoomMap(document.querySelector('#tab-panel-map')!, apple2);
 
     // Debug handles, mirroring apple2js's own convention (window.apple2).

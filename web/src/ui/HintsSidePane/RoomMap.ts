@@ -1,35 +1,79 @@
 import { Apple2 } from 'js/apple2';
 import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
-import { LEVEL_ADDRESS } from './LevelMap';
 
 /**
  * Memory addresses resolved from build-tooling/pop-build/obj/MASTER.LST,
- * same technique as LEVEL_ADDRESS.
+ * same technique as EmulatorController.ts's JOYON_ADDRESS.
  *
- * - GAMEEQ.S's `VisScrn` ($00CB, main zero page — "00CB: 00  469 VisScrn ds
- *   1") is the screen currently on display. `SCRNUM` ($0023) also exists
- *   but CTRL.S/MOVER.S use it as a scratch parameter for one-off
- *   per-character screen lookups, not a stable "current position" — VisScrn
- *   is the one the game itself treats as *the* visible screen (used
- *   throughout COLL.S/MOVER.S/SUBS.S for rendering and collision), so it's
- *   the reliable read here.
- * - Each level's 24-screen room-link table lives in *auxiliary* RAM, not
- *   main memory: EQ.S groups `blueprnt` ($b700) under its "Auxmem" heading
- *   alongside the other bulk per-level data (`BLUETYPE`/`BLUESPEC`/
- *   `LINKLOC`/`LINKMAP`/`MAP`/`INFO`), all swapped into the //e's aux 64K
- *   bank when a level loads. `MAP` itself resolves to $BEA0 (96 bytes: 24
- *   screens x 4 bytes). CTRLSUBS.S's GETLEFT/GETRIGHT/GETUP/GETDOWN
- *   (`lda MAP-4,x` / `-3,x` / `-2,x` / `-1,x` with `x = screen*4`) confirm
- *   both the byte order per screen block — [Left, Right, Above, Below] —
- *   and that screens are 1-indexed with 0 meaning "no neighbor" (edge of
- *   level).
+ * - EQ.S's `level` flag ($03F4: "463 level ds 1") lives in the $0200-$BFFF
+ *   range, which HIRES.S's rendering code flips between main and aux RAM
+ *   (via the RAMRD softswitch, $C002/$C003) many times per *frame* while
+ *   drawing the screen — not just at level-load boundaries. Reading it with
+ *   `cpu.read()`, which reflects whatever bank happens to be switched in at
+ *   that instant, intermittently returns aux RAM's unrelated byte at that
+ *   same offset instead of the real level number (observed as the level
+ *   display flickering between values during ordinary gameplay). Reading it
+ *   via a full state snapshot's main-bank RAM (`ram[0]`, unaffected by the
+ *   live softswitch state) avoids this; see readMainByte() below.
+ * - GAMEEQ.S's `VisScrn` ($00CB, "469 VisScrn ds 1") is the screen
+ *   currently on display — the reliable "current position" read (SCRNUM at
+ *   $0023 is a scratch var CTRL.S/MOVER.S reuse for one-off per-character
+ *   lookups, not a stable current-screen indicator). VisScrn lives in zero
+ *   page ($0000-$01FF), which is only ever bank-switched via ALTZP
+ *   ($C008/$C009), and only around rare load/save/level-transition jump
+ *   points (GRAFIX.S's LOADLEVEL/SAVEGAME/etc. trampolines) — not during
+ *   the per-frame render/movement/collision hot path — so a plain
+ *   `cpu.read()` is fine here and stays responsive frame-to-frame.
+ * - Each level's 24-screen room-link table lives in *auxiliary* RAM: EQ.S
+ *   groups `blueprnt` ($b700) under its "Auxmem" heading alongside the
+ *   other bulk per-level data, swapped into the //e's aux 64K bank when a
+ *   level loads. `MAP` resolves to $BEA0 (96 bytes: 24 screens x 4 bytes).
+ *   CTRLSUBS.S's GETLEFT/GETRIGHT/GETUP/GETDOWN (`lda MAP-4,x` / `-3,x` /
+ *   `-2,x` / `-1,x` with `x = screen*4`) confirm both the byte order per
+ *   screen block — [Left, Right, Above, Below] — and that screens are
+ *   1-indexed with 0 meaning "no neighbor" (edge of level).
  */
+const LEVEL_ADDRESS = 0x03f4;
 const VISSCRN_ADDRESS = 0x00cb;
 const MAP_TABLE_AUX_ADDRESS = 0xbea0;
 const SCREEN_COUNT = 24;
 
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
+
+// Level-detection via readMainByte() is reliable but costs a full RAM
+// snapshot copy, so it's throttled rather than done every tick — level
+// only changes at rare transition boundaries, so a few checks a second is
+// still plenty responsive.
+const LEVEL_CHECK_INTERVAL_TICKS = 20;
+
+interface LevelEntry {
+    label: string;
+    note?: string;
+}
+
+/**
+ * Sourced directly from TOPCTRL.S's comments and level-transition logic,
+ * not guessed or pulled from outside references — see the git history of
+ * this file for the full reasoning per level.
+ */
+const LEVELS = new Map<number, LevelEntry>([
+    [0, { label: 'Demo', note: 'Attract-mode loop, not a real level' }],
+    [1, { label: 'Level 1', note: 'Starts without the sword' }],
+    [2, { label: 'Level 2' }],
+    [3, { label: 'Level 3', note: 'No separate background data in the build' }],
+    [4, { label: 'Level 4' }],
+    [5, { label: 'Level 5' }],
+    [6, { label: 'Level 6', note: 'Falling off screen 1 cuts straight to Level 7' }],
+    [7, { label: 'Level 7' }],
+    [8, { label: 'Level 8' }],
+    [9, { label: 'Level 9' }],
+    [10, { label: 'Level 10' }],
+    [11, { label: 'Level 11' }],
+    [12, { label: 'Level 12', note: 'Exiting screen 23 cuts straight to Level 13' }],
+    [13, { label: 'Level 13', note: 'Face the Grand Vizier Jaffar' }],
+    [14, { label: 'Epilogue', note: 'Rescue the Princess' }],
+]);
 
 interface ScreenLinks {
     left: number;
@@ -41,6 +85,11 @@ interface ScreenLinks {
 interface Coord {
     x: number;
     y: number;
+}
+
+/** Reads a single byte from the main RAM bank, bypassing whatever the live RAMRD/RAMWRT softswitch state happens to be — see the file-level comment above. */
+function readMainByte(apple2: Apple2, address: number): number | undefined {
+    return captureSnapshot(apple2).ram?.[0]?.mem[address];
 }
 
 function readScreenLinks(auxRam: Uint8Array): Map<number, ScreenLinks> {
@@ -96,38 +145,34 @@ function layoutScreens(
 }
 
 /**
- * Renders a fog-of-war map of the current level's screens into `container`
- * (appended alongside, not replacing, whatever's already there — see
- * LevelMap.ts's `renderLevelMap`, mounted into the same tab panel).
- *
- * The screen graph and grid layout are rebuilt once per level (from the
- * aux-RAM room-link table); after that, per-tick `update()` just tracks
- * which screen is current and adds it to the revealed set — cheap, same
- * pattern as LevelMap.ts's own update().
+ * Renders the Map tab: a compact "Level N" line (from EQ.S's `level`
+ * variable) plus a fog-of-war map of that level's screens, built from the
+ * level's own room-link data and revealed as the player explores.
  */
 export function renderRoomMap(
     container: HTMLElement,
     apple2: Apple2
 ): { update: () => void } {
     const cpu = apple2.getCPU();
-
-    const section = document.createElement('div');
-    section.className = 'room-map-section';
-    container.appendChild(section);
+    container.innerHTML = '';
 
     const heading = document.createElement('h2');
-    heading.textContent = 'Room map';
-    section.appendChild(heading);
+    heading.textContent = 'Map';
+    container.appendChild(heading);
 
-    const intro = document.createElement('p');
-    intro.className = 'cheat-intro';
-    intro.textContent =
-        "Fog-of-war map of the current level's screens, built from the level's own room-link data and revealed as you explore.";
-    section.appendChild(intro);
+    const levelLine = document.createElement('p');
+    levelLine.className = 'room-map-level';
+    container.appendChild(levelLine);
+
+    const emptyState = document.createElement('p');
+    emptyState.className = 'cheat-intro room-map-empty';
+    emptyState.textContent = 'Builds once you’re actually in a level (not the title/attract screen).';
+    container.appendChild(emptyState);
 
     const gridWrap = document.createElement('div');
     gridWrap.className = 'room-map-grid-wrap';
-    section.appendChild(gridWrap);
+    gridWrap.hidden = true;
+    container.appendChild(gridWrap);
 
     const grid = document.createElement('div');
     grid.className = 'room-map-grid';
@@ -143,6 +188,7 @@ export function renderRoomMap(
     let needsRebuild = true;
     let stableScreen = -1;
     let stableCount = 0;
+    let ticksSinceLevelCheck = LEVEL_CHECK_INTERVAL_TICKS; // check immediately on first tick
 
     const renderVisibility = () => {
         const frontier = new Set<number>();
@@ -164,7 +210,7 @@ export function renderRoomMap(
             cell.classList.toggle('room-map-hidden', !isVisited && !isFrontier);
             cell.classList.toggle('room-map-frontier', isFrontier);
             cell.classList.toggle('room-map-current', screen === currentScreen);
-            cell.textContent = isVisited ? String(screen) : '';
+            cell.textContent = screen === currentScreen ? '●' : '';
         }
     };
 
@@ -176,6 +222,9 @@ export function renderRoomMap(
         const auxRam = captureSnapshot(apple2).ram?.[1]?.mem;
         links = auxRam ? readScreenLinks(auxRam) : new Map();
         coords = layoutScreens(links, currentScreen);
+
+        emptyState.hidden = coords.size > 0;
+        gridWrap.hidden = coords.size === 0;
 
         if (coords.size === 0) {
             return;
@@ -207,13 +256,25 @@ export function renderRoomMap(
         renderVisibility();
     };
 
+    const updateLevelLine = (level: number) => {
+        const entry = LEVELS.get(level);
+        levelLine.textContent = entry
+            ? entry.label + (entry.note ? ` — ${entry.note}` : '')
+            : `Level ${level}`;
+    };
+
     const update = () => {
-        const level = cpu.read(LEVEL_ADDRESS);
-        if (level !== lastLevel) {
-            lastLevel = level;
-            needsRebuild = true;
-            stableScreen = -1;
-            stableCount = 0;
+        ticksSinceLevelCheck++;
+        if (ticksSinceLevelCheck >= LEVEL_CHECK_INTERVAL_TICKS) {
+            ticksSinceLevelCheck = 0;
+            const level = readMainByte(apple2, LEVEL_ADDRESS);
+            if (level !== undefined && level !== lastLevel) {
+                lastLevel = level;
+                updateLevelLine(level);
+                needsRebuild = true;
+                stableScreen = -1;
+                stableCount = 0;
+            }
         }
 
         const screen = cpu.read(VISSCRN_ADDRESS);
@@ -223,9 +284,9 @@ export function renderRoomMap(
         if (needsRebuild) {
             // Wait for a few consecutive identical reads before trusting
             // this screen number and rebuilding from aux RAM — right after
-            // the level byte changes, the level's own load routine may
-            // still be a few frames from finishing, and reading the
-            // room-link table mid-load would bake in stale/partial data.
+            // a level change, the level's own load routine may still be a
+            // few frames from finishing, and reading the room-link table
+            // mid-load would bake in stale/partial data.
             if (screen !== 0 && stableCount >= 10) {
                 currentScreen = screen;
                 needsRebuild = false;
