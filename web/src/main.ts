@@ -40,7 +40,7 @@ async function main() {
     const rewindBuffer = new RewindBuffer(REWIND_CAPACITY);
     let apple2Ref: Apple2 | undefined;
     let scrubberHandle: { syncRange: () => void } | undefined;
-    let roomMapHandle: { update: () => void } | undefined;
+    let roomMapHandle: { update: () => void; debug: () => unknown } | undefined;
     let diskSwapHandle: { onTick: () => void } | undefined;
     const recorder = new RewindRecorder(
         rewindBuffer,
@@ -64,6 +64,7 @@ async function main() {
         __apple2: apple2,
         __rewindBuffer: rewindBuffer,
         __audio: audio,
+        __roomMap: roomMapHandle,
     });
 
     attachKeyboard(apple2, canvas);
