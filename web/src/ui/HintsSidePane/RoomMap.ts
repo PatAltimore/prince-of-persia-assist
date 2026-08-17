@@ -10,14 +10,19 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  *   compared against a specific value to decide whether to show or hide
  *   the map — deliberately, since `level` lives in the $0200-$BFFF range,
  *   which HIRES.S's rendering code flips between main and aux RAM (via the
- *   RAMRD softswitch, $C002/$C003) many times per frame while drawing the
- *   screen, so a plain `cpu.read()` can occasionally catch it mid-flip.
- *   Treating any misread as meaningful (e.g. "0 means the demo, wipe the
- *   map") turned a rare glitch into the map going permanently blank; using
- *   it only to *decide when to re-check* means an occasional bad read just
- *   costs one wasted rebuild attempt, not a stuck display — the actual
- *   graph is always built from KidScrn (see below), never from `level`
- *   itself.
+ *   RAMRD softswitch, $C002/$C003) *many times per frame* while drawing
+ *   the screen. That's frequent enough that a plain `cpu.read()` doesn't
+ *   just occasionally glitch — in practice, every misread re-triggers the
+ *   "wait for the level to settle" gate below, which blocks live
+ *   screen-tracking for another LEVEL_LOAD_SETTLE_TICKS ticks each time,
+ *   even though a perfectly good map is already built. So `level` is read
+ *   via readMainByte() (bypassing whatever the live softswitch state
+ *   happens to be) instead of cpu.read() — cheap enough to do every tick
+ *   since it's a single byte, not a full apple2.getState() snapshot. The
+ *   actual graph is always built from KidScrn (see below), never from
+ *   `level` itself, so this only needs to be *reasonably* stable, not
+ *   perfectly so — but "reasonably" still means "not glitching essentially
+ *   every frame."
  * - GAMEEQ.S's `KidScrn` ($005B, "611 KidScrn ds 1", part of the "dum Kid"
  *   per-character struct) is the screen the kid is actually standing on —
  *   confirmed by AUTO.S's guard-transfer logic, which reads it as "ldx
@@ -73,12 +78,34 @@ const PIECE_ID_SWORD = 22;
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
 
-// How many consecutive ticks KidScrn must hold the same nonzero value
-// before a freshly-detected level change is trusted enough to rebuild the
-// map from aux RAM — the level's own load routine may still be a few
-// frames from finishing when `level` itself changes, and reading the
-// room-link table mid-load would bake in stale/partial data.
-const SCREEN_STABLE_TICKS = 10;
+// How many ticks to wait after a level change before trusting KidScrn and
+// rebuilding the map from aux RAM — the level's own load routine may still
+// be a few frames from finishing when `level` itself changes, and reading
+// the room-link table mid-load would bake in stale/partial data. This is a
+// flat delay, not a "wait for KidScrn to stop changing" gate: a real
+// player may already be walking away from the spawn point well within
+// this window, and KidScrn changing is expected, not a sign the read is
+// untrustworthy (see the file-level comment on KidScrn vs VisScrn).
+const LEVEL_LOAD_SETTLE_TICKS = 10;
+
+/**
+ * Reads a single byte straight from the main RAM bank's live backing
+ * array, bypassing whatever the live RAMRD/RAMWRT softswitch state
+ * happens to be (see the file-level comment on `level`) — and bypassing
+ * the cost of `apple2.getState()`, which besides copying both 48KB RAM
+ * banks also serializes CPU/video/IO/MMU state this doesn't need, so it's
+ * cheap enough to call every tick.
+ *
+ * `ram` is a private field on Apple2 (js/apple2.ts), not part of its
+ * public API — this project already reaches into it directly elsewhere
+ * for the same reason (see docs/SPIKE-NOTES.md's
+ * `apple2.ram[0].mem.buffer` check), and the field itself is part of a
+ * pinned vendored dependency (web/vendor/apple2js), so this is a
+ * deliberate, documented exception rather than an accident.
+ */
+function readMainByte(apple2: Apple2, address: number): number | undefined {
+    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[0]?.mem[address];
+}
 
 interface ScreenLinks {
     left: number;
@@ -251,8 +278,7 @@ export function renderRoomMap(
     let lastLevel = -1;
     let pendingLevel = 0;
     let needsRebuild = true;
-    let stableScreen = -1;
-    let stableCount = 0;
+    let ticksSinceLevelChange = 0;
 
     const renderVisibility = () => {
         const frontier = new Set<number>();
@@ -354,26 +380,19 @@ export function renderRoomMap(
         // the file-level comment). The rebuild itself is keyed off
         // KidScrn, which is what actually decides whether real map data
         // exists to show.
-        const level = cpu.read(LEVEL_ADDRESS);
-        if (level !== lastLevel) {
+        const level = readMainByte(apple2, LEVEL_ADDRESS);
+        if (level !== undefined && level !== lastLevel) {
             lastLevel = level;
             pendingLevel = level;
             needsRebuild = true;
-            stableScreen = -1;
-            stableCount = 0;
+            ticksSinceLevelChange = 0;
         }
 
         const screen = cpu.read(KIDSCRN_ADDRESS);
-        stableCount = screen === stableScreen ? stableCount + 1 : 1;
-        stableScreen = screen;
 
         if (needsRebuild) {
-            // Wait for a few consecutive identical reads before trusting
-            // this screen number and rebuilding from aux RAM — right after
-            // a level change, the level's own load routine may still be a
-            // few frames from finishing, and reading the room-link table
-            // mid-load would bake in stale/partial data.
-            if (screen !== 0 && stableCount >= SCREEN_STABLE_TICKS) {
+            ticksSinceLevelChange++;
+            if (screen !== 0 && ticksSinceLevelChange >= LEVEL_LOAD_SETTLE_TICKS) {
                 currentScreen = screen;
                 needsRebuild = false;
                 rebuild();
@@ -392,8 +411,7 @@ export function renderRoomMap(
         lastLevel,
         pendingLevel,
         needsRebuild,
-        stableScreen,
-        stableCount,
+        ticksSinceLevelChange,
         currentScreen,
         coordsSize: coords.size,
         visitedSize: visited.size,
