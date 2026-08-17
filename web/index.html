@@ -29,15 +29,23 @@
                     <button id="rewind-5s-btn" title="Rewind 5 seconds (Backspace)">⏪ -5s</button>
                 </div>
                 <div class="key-legend">
-                    <span><kbd>I</kbd> Up</span>
-                    <span><kbd>J</kbd> Left</span>
-                    <span><kbd>K</kbd> Down</span>
-                    <span><kbd>L</kbd> Right</span>
-                    <span><kbd>U</kbd> Up-left</span>
-                    <span><kbd>O</kbd> Up-right</span>
-                    <span><kbd>Alt</kbd> Fight / draw sword / pick up (potions, swords)</span>
-                    <span><kbd>Esc</kbd> Pause</span>
-                    <span><kbd>⌫</kbd> Rewind 5s</span>
+                    <div class="key-legend-movement">
+                        <div class="key-legend-row">
+                            <span class="key-legend-key"><kbd>U</kbd><label>Up-left</label></span>
+                            <span class="key-legend-key"><kbd>I</kbd><label>Up</label></span>
+                            <span class="key-legend-key"><kbd>O</kbd><label>Up-right</label></span>
+                        </div>
+                        <div class="key-legend-row key-legend-row-offset">
+                            <span class="key-legend-key"><kbd>J</kbd><label>Left</label></span>
+                            <span class="key-legend-key"><kbd>K</kbd><label>Down</label></span>
+                            <span class="key-legend-key"><kbd>L</kbd><label>Right</label></span>
+                        </div>
+                    </div>
+                    <div class="key-legend-actions">
+                        <span><kbd>Alt</kbd> Fight / draw sword / pick up (potions, swords)</span>
+                        <span><kbd>Esc</kbd> Pause</span>
+                        <span><kbd>⌫</kbd> Rewind 5s</span>
+                    </div>
                 </div>
             </div>
             <aside id="hints-pane" class="hints-pane">

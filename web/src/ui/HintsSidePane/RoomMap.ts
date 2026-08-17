@@ -32,11 +32,28 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  *   `-2,x` / `-1,x` with `x = screen*4`) confirm both the byte order per
  *   screen block — [Left, Right, Above, Below] — and that screens are
  *   1-indexed with 0 meaning "no neighbor" (edge of level).
+ * - `BLUETYPE` is the *first* field of the same `blueprnt` struct, so it
+ *   starts at $B700 itself: 720 bytes = 24 screens x 30 tiles, one byte per
+ *   tile. Every read site (MOVER.S, FRAMEADV.S, SUBS.S, etc.) masks each
+ *   byte with `idmask` (`%00011111`, EQ.S) before comparing it against a
+ *   named piece ID from BGDATA.S — the top 3 bits carry unrelated flags
+ *   (`secmask`/`reqmask`). Piece IDs used below: `sword = 22`, `flask
+ *   (potion) = 10`, `exit = 16` — confirmed as the actual level-exit
+ *   staircase via its handlers (MOVER.S's `openexit`/`animexit`,
+ *   FRAMEADV.S's `drawexitb`). BGDATA.S also defines `exit2 = 17`, but
+ *   grepping the whole source tree turns up no `cmp #exit2` anywhere — it's
+ *   unused, so it's deliberately not treated as a second exit ID here.
  */
 const LEVEL_ADDRESS = 0x03f4;
 const VISSCRN_ADDRESS = 0x00cb;
 const MAP_TABLE_AUX_ADDRESS = 0xbea0;
+const BLUETYPE_AUX_ADDRESS = 0xb700;
 const SCREEN_COUNT = 24;
+const TILES_PER_SCREEN = 30;
+const PIECE_ID_MASK = 0x1f;
+const PIECE_ID_FLASK = 10;
+const PIECE_ID_EXIT = 16;
+const PIECE_ID_SWORD = 22;
 
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
@@ -87,6 +104,20 @@ interface Coord {
     y: number;
 }
 
+type ImportantKind = 'sword' | 'potion' | 'exit';
+
+const IMPORTANT_BADGES: Record<ImportantKind, string> = {
+    sword: 'S',
+    potion: 'P',
+    exit: 'X',
+};
+
+const IMPORTANT_LABELS: Record<ImportantKind, string> = {
+    sword: 'sword',
+    potion: 'potion',
+    exit: 'exit',
+};
+
 /** Reads a single byte from the main RAM bank, bypassing whatever the live RAMRD/RAMWRT softswitch state happens to be — see the file-level comment above. */
 function readMainByte(apple2: Apple2, address: number): number | undefined {
     return captureSnapshot(apple2).ram?.[0]?.mem[address];
@@ -104,6 +135,39 @@ function readScreenLinks(auxRam: Uint8Array): Map<number, ScreenLinks> {
         });
     }
     return links;
+}
+
+/**
+ * Scans each screen's 30 background tiles for sword/potion/exit piece IDs
+ * — static level layout data, so this only needs to run once per level
+ * (alongside readScreenLinks(), from the same aux-RAM snapshot) rather
+ * than tracking whether a given item has actually been picked up.
+ */
+function readImportantScreens(auxRam: Uint8Array): Map<number, Set<ImportantKind>> {
+    const result = new Map<number, Set<ImportantKind>>();
+    for (let screen = 1; screen <= SCREEN_COUNT; screen++) {
+        const base = BLUETYPE_AUX_ADDRESS + (screen - 1) * TILES_PER_SCREEN;
+        let kinds: Set<ImportantKind> | undefined;
+        for (let tile = 0; tile < TILES_PER_SCREEN; tile++) {
+            const pieceId = auxRam[base + tile] & PIECE_ID_MASK;
+            let kind: ImportantKind | undefined;
+            if (pieceId === PIECE_ID_SWORD) {
+                kind = 'sword';
+            } else if (pieceId === PIECE_ID_FLASK) {
+                kind = 'potion';
+            } else if (pieceId === PIECE_ID_EXIT) {
+                kind = 'exit';
+            }
+            if (kind) {
+                kinds ??= new Set();
+                kinds.add(kind);
+            }
+        }
+        if (kinds) {
+            result.set(screen, kinds);
+        }
+    }
+    return result;
 }
 
 /**
@@ -178,9 +242,25 @@ export function renderRoomMap(
     grid.className = 'room-map-grid';
     gridWrap.appendChild(grid);
 
+    const legend = document.createElement('p');
+    legend.className = 'room-map-legend';
+    legend.hidden = true;
+    (['sword', 'potion', 'exit'] as const).forEach((kind, i) => {
+        if (i > 0) {
+            legend.appendChild(document.createTextNode('   '));
+        }
+        const badge = document.createElement('span');
+        badge.className = 'room-map-badge';
+        badge.textContent = IMPORTANT_BADGES[kind];
+        legend.appendChild(badge);
+        legend.appendChild(document.createTextNode(` ${IMPORTANT_LABELS[kind]}`));
+    });
+    container.appendChild(legend);
+
     let links = new Map<number, ScreenLinks>();
     let coords = new Map<number, Coord>();
     let cells = new Map<number, HTMLDivElement>();
+    let important = new Map<number, Set<ImportantKind>>();
     let visited = new Set<number>();
     let currentScreen = 0;
 
@@ -207,10 +287,30 @@ export function renderRoomMap(
         for (const [screen, cell] of cells) {
             const isVisited = visited.has(screen);
             const isFrontier = !isVisited && frontier.has(screen);
-            cell.classList.toggle('room-map-hidden', !isVisited && !isFrontier);
+            const isCurrent = screen === currentScreen;
+            const kinds = important.get(screen);
+            // A hidden cell that happens to hold something worth knowing
+            // about (sword/potion/exit) still shows just that hint, without
+            // the border/background that would give away the room's shape
+            // or connections — a middle ground between full fog and a full
+            // reveal, and the whole point of a *hints* tool.
+            const isImportantHint = !isVisited && !isFrontier && !!kinds;
+
+            cell.classList.toggle('room-map-hidden', !isVisited && !isFrontier && !isImportantHint);
             cell.classList.toggle('room-map-frontier', isFrontier);
-            cell.classList.toggle('room-map-current', screen === currentScreen);
-            cell.textContent = screen === currentScreen ? '●' : '';
+            cell.classList.toggle('room-map-important-hint', isImportantHint);
+            cell.classList.toggle('room-map-current', isCurrent);
+
+            let text = isCurrent ? '●' : '';
+            if (kinds) {
+                for (const kind of kinds) {
+                    text += IMPORTANT_BADGES[kind];
+                }
+            }
+            cell.textContent = text;
+            cell.title = kinds
+                ? [...kinds].map((k) => IMPORTANT_LABELS[k]).join(', ')
+                : '';
         }
     };
 
@@ -221,10 +321,12 @@ export function renderRoomMap(
 
         const auxRam = captureSnapshot(apple2).ram?.[1]?.mem;
         links = auxRam ? readScreenLinks(auxRam) : new Map();
+        important = auxRam ? readImportantScreens(auxRam) : new Map();
         coords = layoutScreens(links, currentScreen);
 
         emptyState.hidden = coords.size > 0;
         gridWrap.hidden = coords.size === 0;
+        legend.hidden = coords.size === 0;
 
         if (coords.size === 0) {
             return;

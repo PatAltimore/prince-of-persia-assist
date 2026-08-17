@@ -188,10 +188,35 @@ canvas#screen {
     visibility: hidden;
 }
 
+.room-map-cell.room-map-important-hint {
+    background: transparent;
+    border: none;
+    color: #e0b040;
+    font-weight: 700;
+    cursor: default;
+}
+
 .room-map-cell.room-map-current {
     background: #26414d;
     border: 2px solid #6cf;
     color: #fff;
+}
+
+.room-map-legend {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    color: #888;
+}
+
+.room-map-badge {
+    display: inline-block;
+    min-width: 1.1em;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    background: #3a2f16;
+    color: #e0b040;
+    font-weight: 700;
+    text-align: center;
 }
 
 .hints-root-link {
@@ -259,12 +284,52 @@ canvas#screen {
 .key-legend {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem 0.9rem;
+    align-items: flex-start;
+    gap: 1rem 1.5rem;
     font-size: 0.75rem;
     color: #999;
 }
 
-.key-legend span {
+.key-legend-movement {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.key-legend-row {
+    display: flex;
+    gap: 0.3rem;
+}
+
+/* Home-row keys (J/K/L) sit half a key to the right of the row above
+   (U/I/O) on a real keyboard — mirrored here so the legend's shape
+   matches where your fingers actually are. */
+.key-legend-row-offset {
+    margin-left: 1.15em;
+}
+
+.key-legend-key {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    width: 2.2em;
+}
+
+.key-legend-key label {
+    font-size: 0.62rem;
+    color: #999;
+    white-space: nowrap;
+}
+
+.key-legend-actions {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
+.key-legend-actions span {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
