@@ -158,18 +158,6 @@ canvas#screen {
     color: #6cf;
 }
 
-.room-map-debug {
-    margin: 0 0 0.6rem;
-    padding: 0.35rem 0.5rem;
-    border: 1px dashed #654;
-    border-radius: 4px;
-    background: #221a10;
-    color: #d9a05b;
-    font-family: monospace;
-    font-size: 0.68rem;
-    word-break: break-word;
-}
-
 .room-map-grid-wrap {
     overflow-x: auto;
     padding-bottom: 0.25rem;

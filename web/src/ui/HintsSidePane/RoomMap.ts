@@ -5,18 +5,19 @@ import { captureSnapshot } from '../../emulator/snapshot/SnapshotSerializer';
  * Memory addresses resolved from build-tooling/pop-build/obj/MASTER.LST,
  * same technique as EmulatorController.ts's JOYON_ADDRESS.
  *
- * - EQ.S's `level` flag ($03F4: "463 level ds 1") lives in the $0200-$BFFF
- *   range, which HIRES.S's rendering code flips between main and aux RAM
- *   (via the RAMRD softswitch, $C002/$C003) many times per *frame* while
- *   drawing the screen — not just at level-load boundaries. Reading it with
- *   `cpu.read()`, which reflects whatever bank happens to be switched in at
- *   that instant, intermittently returns aux RAM's unrelated byte at that
- *   same offset instead of the real level number (observed as the level
- *   display flickering between values during ordinary gameplay, and — with
- *   an unlucky enough run of misreads — the map's "wait for a stable
- *   screen" gate never being satisfied at all). Reading main-bank RAM
- *   directly (unaffected by the live softswitch state, see getMainRam()
- *   below) avoids this for both `level` and VisScrn.
+ * - EQ.S's `level` flag ($03F4: "463 level ds 1") is used below purely as
+ *   a *change trigger* ("something happened, try a rebuild"), never
+ *   compared against a specific value to decide whether to show or hide
+ *   the map — deliberately, since `level` lives in the $0200-$BFFF range,
+ *   which HIRES.S's rendering code flips between main and aux RAM (via the
+ *   RAMRD softswitch, $C002/$C003) many times per frame while drawing the
+ *   screen, so a plain `cpu.read()` can occasionally catch it mid-flip.
+ *   Treating any misread as meaningful (e.g. "0 means the demo, wipe the
+ *   map") turned a rare glitch into the map going permanently blank; using
+ *   it only to *decide when to re-check* means an occasional bad read just
+ *   costs one wasted rebuild attempt, not a stuck display — the actual
+ *   graph is always built from VisScrn (see below), never from `level`
+ *   itself.
  * - GAMEEQ.S's `VisScrn` ($00CB, "469 VisScrn ds 1") is the screen
  *   currently on display — the reliable "current position" read (SCRNUM at
  *   $0023 is a scratch var CTRL.S/MOVER.S reuse for one-off per-character
@@ -60,7 +61,7 @@ const CELL_HEIGHT_PX = 24;
 // map from aux RAM — the level's own load routine may still be a few
 // frames from finishing when `level` itself changes, and reading the
 // room-link table mid-load would bake in stale/partial data.
-const SCREEN_STABLE_TICKS = 5;
+const SCREEN_STABLE_TICKS = 10;
 
 interface ScreenLinks {
     left: number;
@@ -87,26 +88,6 @@ const IMPORTANT_LABELS: Record<ImportantKind, string> = {
     potion: 'potion',
     exit: 'exit',
 };
-
-/**
- * Direct read-only view of the main RAM bank's live backing array —
- * bypassing whatever the live RAMRD/RAMWRT softswitch state happens to be
- * (see the file-level comment above), *and* bypassing the cost of
- * `apple2.getState()` (which besides copying both 48KB RAM banks also
- * serializes CPU/video/IO/MMU state this doesn't need). That cost is why
- * this doesn't just call captureSnapshot() every tick the way rebuild()
- * does for the much-less-frequent aux-RAM reads below.
- *
- * `ram` is a private field on Apple2 (js/apple2.ts), not part of its
- * public API — this project already reaches into it directly elsewhere
- * for the same reason (see docs/SPIKE-NOTES.md's
- * `apple2.ram[0].mem.buffer` check), and the field itself is part of a
- * pinned vendored dependency (web/vendor/apple2js), so this is a
- * deliberate, documented exception rather than an accident.
- */
-function getMainRam(apple2: Apple2): Uint8Array | undefined {
-    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[0]?.mem;
-}
 
 function readScreenLinks(auxRam: Uint8Array): Map<number, ScreenLinks> {
     const links = new Map<number, ScreenLinks>();
@@ -202,6 +183,7 @@ export function renderRoomMap(
     container: HTMLElement,
     apple2: Apple2
 ): { update: () => void; debug: () => unknown } {
+    const cpu = apple2.getCPU();
     container.innerHTML = '';
 
     const heading = document.createElement('h2');
@@ -214,14 +196,9 @@ export function renderRoomMap(
 
     const emptyState = document.createElement('p');
     emptyState.className = 'cheat-intro room-map-empty';
-    emptyState.textContent = 'Builds once you’re actually in a level (not the title/attract screen).';
+    emptyState.textContent =
+        'Builds once you’re actually in a level (not the title/attract screen).';
     container.appendChild(emptyState);
-
-    // TEMPORARY: diagnosing https://github.com/PatAltimore/prince-of-persia-assist
-    // "map stuck on empty state during real gameplay" — remove once resolved.
-    const debugLine = document.createElement('p');
-    debugLine.className = 'room-map-debug';
-    container.appendChild(debugLine);
 
     const gridWrap = document.createElement('div');
     gridWrap.className = 'room-map-grid-wrap';
@@ -255,6 +232,7 @@ export function renderRoomMap(
     let currentScreen = 0;
 
     let lastLevel = -1;
+    let pendingLevel = 0;
     let needsRebuild = true;
     let stableScreen = -1;
     let stableCount = 0;
@@ -316,6 +294,12 @@ export function renderRoomMap(
         emptyState.hidden = coords.size > 0;
         gridWrap.hidden = coords.size === 0;
         legend.hidden = coords.size === 0;
+        // pendingLevel is whatever `level` most recently read as when this
+        // rebuild was triggered — shown only once we actually have real
+        // map data to back it up, not just because `level` changed (see
+        // the file-level comment on why `level`'s exact value isn't
+        // otherwise trusted).
+        levelLine.textContent = coords.size > 0 ? `Level ${pendingLevel}` : '';
 
         if (coords.size === 0) {
             return;
@@ -347,91 +331,55 @@ export function renderRoomMap(
         renderVisibility();
     };
 
-    /** Resets the display back to "not actually in a level" — used for level 0, the attract-mode demo loop. */
-    const showNoLevel = () => {
-        levelLine.textContent = '';
-        grid.innerHTML = '';
-        cells = new Map();
-        coords = new Map();
-        visited = new Set();
-        currentScreen = 0;
-        emptyState.hidden = false;
-        gridWrap.hidden = true;
-        legend.hidden = true;
-    };
-
-    let lastMainRamMissing = false;
-
     const update = () => {
-        const mainRam = getMainRam(apple2);
-        if (!mainRam) {
-            // Shouldn't happen once booted (see getMainRam()'s doc comment)
-            // but if apple2js's internals ever shift under this, fail
-            // loudly exactly once instead of silently freezing the map.
-            if (!lastMainRamMissing) {
-                lastMainRamMissing = true;
-                console.error('RoomMap: could not reach the main RAM bank; map will not update.');
-            }
-            return;
-        }
-        lastMainRamMissing = false;
-
-        const level = mainRam[LEVEL_ADDRESS];
+        // `level` is read purely to notice "something changed, worth a
+        // rebuild attempt" — never compared against a specific value (see
+        // the file-level comment). The rebuild itself is keyed off
+        // VisScrn, which is what actually decides whether real map data
+        // exists to show.
+        const level = cpu.read(LEVEL_ADDRESS);
         if (level !== lastLevel) {
             lastLevel = level;
+            pendingLevel = level;
+            needsRebuild = true;
             stableScreen = -1;
             stableCount = 0;
-            if (level > 0) {
-                levelLine.textContent = `Level ${level}`;
-                needsRebuild = true;
-            } else {
-                // Level 0 is the attract-mode demo loop, not a level the
-                // player is actually on.
-                needsRebuild = false;
-                showNoLevel();
-            }
         }
 
-        const screen = mainRam[VISSCRN_ADDRESS];
+        const screen = cpu.read(VISSCRN_ADDRESS);
         stableCount = screen === stableScreen ? stableCount + 1 : 1;
         stableScreen = screen;
 
-        let rebuilt = false;
-        let didRebuildAttempt: 'skipped' | 'ran' = 'skipped';
         if (needsRebuild) {
             // Wait for a few consecutive identical reads before trusting
-            // this screen number and rebuilding from aux RAM — see
-            // SCREEN_STABLE_TICKS' comment.
+            // this screen number and rebuilding from aux RAM — right after
+            // a level change, the level's own load routine may still be a
+            // few frames from finishing, and reading the room-link table
+            // mid-load would bake in stale/partial data.
             if (screen !== 0 && stableCount >= SCREEN_STABLE_TICKS) {
                 currentScreen = screen;
                 needsRebuild = false;
-                didRebuildAttempt = 'ran';
                 rebuild();
-                rebuilt = coords.size > 0;
             }
-        } else if (screen !== 0 && screen !== currentScreen && coords.has(screen)) {
+            return;
+        }
+
+        if (screen !== 0 && screen !== currentScreen && coords.has(screen)) {
             currentScreen = screen;
             visited.add(screen);
             renderVisibility();
         }
-
-        // TEMPORARY, see debugLine's declaration above.
-        debugLine.textContent =
-            `debug: rawLevel=${level} rawScreen=${screen} lastLevel=${lastLevel} ` +
-            `needsRebuild=${needsRebuild} stableScreen=${stableScreen} stableCount=${stableCount} ` +
-            `currentScreen=${currentScreen} coords=${coords.size} visited=${visited.size} ` +
-            `rebuildAttempt=${didRebuildAttempt} rebuiltOk=${rebuilt}`;
     };
 
     const debug = () => ({
-        level: lastLevel,
+        lastLevel,
+        pendingLevel,
         needsRebuild,
         stableScreen,
         stableCount,
         currentScreen,
         coordsSize: coords.size,
         visitedSize: visited.size,
-        hasMainRam: !!getMainRam(apple2),
     });
 
     return { update, debug };
