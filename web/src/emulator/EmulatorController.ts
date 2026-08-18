@@ -119,17 +119,36 @@ export async function bootEmulator(
 }
 
 /**
- * Forces POP into keyboard-input mode by writing 0 directly to `joyon`
- * (see JOYON_ADDRESS above) every call. The game does have a normal way to
- * do this at runtime — pressing Ctrl+K sends the `ksetkbd` key the game
- * itself listens for — but that only takes effect once, whenever the game
- * happens to poll the keyboard next, and nothing stops a later Ctrl+J (or
- * the game's own joystick auto-detection, if any) from switching back.
- * Calling this every frame (see main.ts's tick callback) makes keyboard
- * mode unconditional rather than a one-time nudge.
+ * Directly sets `joyon` (see JOYON_ADDRESS above) in *both* RAM banks,
+ * bypassing whatever bank the RAMRD/RAMWRT softswitch currently points a
+ * plain `cpu.write` at. `enabled: false` forces keyboard-input mode
+ * (mirroring the old `ksetkbd`/Ctrl+K cheat, but every frame so nothing —
+ * not even the game's own joystick auto-detection — can switch it back);
+ * `enabled: true` is used once the on-screen joystick (TouchControls.ts)
+ * is engaged.
+ *
+ * The dual-bank write is required by the same hazard already fixed for
+ * RoomMap.ts's `level` read: the //e's aux-bank rendering code (HIRES.S)
+ * toggles RAMRD/RAMWRT constantly, so a single-bank write (plain
+ * `cpu.write`) can leave the two banks holding different values for the
+ * same "variable" — confirmed live by writing `joyon` through a plain
+ * `cpu.write` and then observing the main bank hold 0 while the aux bank
+ * still held 0xff from the game's own SETCENTER (see TouchControls.ts's
+ * Ctrl+J dispatch), with `cpu.read` flapping between the two values tick
+ * to tick depending on whichever bank happened to be selected at that
+ * instant. Since the game's own gameplay loop can equally end up reading
+ * either bank, only writing both consistently guarantees it sees the
+ * intended value.
  */
-export function forceKeyboardControls(cpu: CPU6502): void {
-    cpu.write(JOYON_ADDRESS, 0);
+export function setJoystickInputEnabled(apple2: Apple2, enabled: boolean): void {
+    const banks = (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram;
+    const value = enabled ? 0xff : 0;
+    if (!banks) {
+        return;
+    }
+    for (const bank of banks) {
+        bank.mem[JOYON_ADDRESS] = value;
+    }
 }
 
 /**

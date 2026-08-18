@@ -1,5 +1,5 @@
 import { Apple2 } from 'js/apple2';
-import { bootEmulator, loadDiskFromUrl, forceKeyboardControls } from './emulator/EmulatorController';
+import { bootEmulator, loadDiskFromUrl, setJoystickInputEnabled } from './emulator/EmulatorController';
 import { attachKeyboard } from './emulator/keyboard';
 import { attachAutoDiskSwap, DiskSide } from './emulator/diskSwap';
 import { renderHintsSidePane } from './ui/HintsSidePane/HintsSidePane';
@@ -11,6 +11,7 @@ import { captureSnapshot } from './emulator/snapshot/SnapshotSerializer';
 import { captureThumbnail } from './emulator/snapshot/thumbnail';
 import { attachRewindScrubber, attachRewindButton } from './ui/RewindScrubber';
 import { attachSaveLoadMenu } from './ui/SaveMenu';
+import { attachTouchControls } from './ui/TouchControls';
 
 const DISK_A_URL = '/disks/PrinceOfPersia_5.25_SideA.nib';
 const DISK_B_URL = '/disks/PrinceOfPersia_5.25_SideB.nib';
@@ -42,6 +43,7 @@ async function main() {
     let scrubberHandle: { syncRange: () => void } | undefined;
     let roomMapHandle: { update: () => void; debug: () => unknown } | undefined;
     let diskSwapHandle: { onTick: () => void } | undefined;
+    let touchControlsHandle: { isEngaged: () => boolean } | undefined;
     let sideABuffer: ArrayBuffer | undefined;
     let sideBBuffer: ArrayBuffer | undefined;
     const recorder = new RewindRecorder(
@@ -52,7 +54,7 @@ async function main() {
     );
 
     const { apple2, disk2, cpu, audio } = await bootEmulator(canvas, () => {
-        forceKeyboardControls(cpu);
+        setJoystickInputEnabled(apple2, touchControlsHandle?.isEngaged() ?? false);
         recorder.onTick();
         scrubberHandle?.syncRange();
         roomMapHandle?.update();
@@ -60,11 +62,20 @@ async function main() {
     });
     apple2Ref = apple2;
     roomMapHandle = renderRoomMap(document.querySelector('#tab-panel-map')!, apple2);
+    touchControlsHandle = attachTouchControls(
+        apple2.getIO(),
+        canvas,
+        document.querySelector('#touch-joystick')!,
+        document.querySelector('#touch-joystick-thumb')!,
+        document.querySelector('#touch-btn-0')!,
+        document.querySelector('#touch-btn-1')!
+    );
 
     // Debug handles, mirroring apple2js's own convention (window.apple2).
     Object.assign(window, {
         __apple2: apple2,
         __rewindBuffer: rewindBuffer,
+        __touchControls: touchControlsHandle,
         __audio: audio,
         __roomMap: roomMapHandle,
     });
