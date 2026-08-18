@@ -1,6 +1,6 @@
-# pop-assist
+# Prince of Persia - Assist mode
 
-A browser-playable Prince of Persia (Apple II, 1989) emulator, built from Jordan Mechner's officially released 6502 assembly source, paired with a hints side panel linking into [Code Museum](https://blue-rock-0e6a0831e.7.azurestaticapps.net/#/prince-of-persia).
+A browser-playable Prince of Persia (Apple II, 1989) emulator, built from Jordan Mechner's officially released 6502 assembly source, paired with a hints side panel linking into [Code Museum](https://blue-rock-0e6a0831e.7.azurestaticapps.net/#/prince-of-persia), developer debug cheats, save states, and a gameplay rewind buffer.
 
 ## Disclaimer
 
@@ -17,10 +17,8 @@ The Prince of Persia Apple II source code was released by Jordan Mechner for **s
 | Component | Source | License | Role |
 |---|---|---|---|
 | Game source | [jmechner/Prince-of-Persia-Apple-II](https://github.com/jmechner/Prince-of-Persia-Apple-II) (`vendor/prince-of-persia-apple2-src`, submodule) | Study/personal use only, see upstream README | Assembled into the bootable disk image shipped with the app |
-| Assembler/disk-imaging tool | [adamgreen/snapNcrackle](https://github.com/adamgreen/snapNcrackle) (`build-tooling/snapncrackle`, submodule) | GPL-2.0 | **Build-time only** — turns the source into a `.dsk`/`.po` image. Never imported into the shipped web app. See [docs/DECISIONS.md](docs/DECISIONS.md) for the license-boundary reasoning. |
+| Assembler/disk-imaging tool | [adamgreen/snapNcrackle](https://github.com/adamgreen/snapNcrackle) (`build-tooling/snapncrackle`, submodule) | GPL-2.0 | **Build-time only** — turns the source into a `.dsk`/`.po` image. Never imported into the shipped web app. |
 | Emulator core | [whscullin/apple2js](https://github.com/whscullin/apple2js) (vendored subset in `web/src/emulator/apple2-core`) | MIT | Runs the assembled disk image client-side in the browser |
-
-See [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/SPIKE-NOTES.md](docs/SPIKE-NOTES.md) for build/architecture notes.
 
 ## Building the disk image
 
@@ -44,8 +42,6 @@ The workflow needs an Azure resource and a GitHub secret that only you can creat
 2. **Get the deployment token**: in the created resource, go to *Overview → Manage deployment token*, copy it.
 3. **Add it as a GitHub secret**: in this repo's GitHub settings, *Settings → Secrets and variables → Actions → New repository secret*, name it `AZURE_STATIC_WEB_APPS_API_TOKEN`, paste the token.
 4. Push to `main` (or open a PR) — the workflow builds and deploys automatically.
-
-Local production-build verification (recommended before pushing, since `vite dev` alone does **not** catch everything — see the 2026-08-16 entry in [docs/SPIKE-NOTES.md](docs/SPIKE-NOTES.md) for why):
 
 ```bash
 cd web
