@@ -314,10 +314,38 @@ canvas#screen {
 
 .touch-controls {
     display: none;
+    flex-direction: column;
+    gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
+}
+
+.touch-controls-row {
+    display: flex;
     align-items: center;
     justify-content: space-between;
+    width: 100%;
+}
+
+.touch-joystick-group,
+.touch-buttons-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.touch-control-label {
+    font-size: 0.72rem;
+    color: #999;
+    white-space: nowrap;
+}
+
+.touch-controls-hint {
+    margin: 0;
+    font-size: 0.72rem;
+    color: #777;
+    text-align: center;
 }
 
 .touch-joystick {
@@ -401,6 +429,12 @@ canvas#screen {
 
 .rewind input[type='range'] {
     flex: 1;
+}
+
+#rewind-5s-btn {
+    padding: 0.6rem 1.1rem;
+    font-size: 1rem;
+    border-radius: 6px;
 }
 
 .key-legend {
