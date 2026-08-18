@@ -314,25 +314,10 @@ canvas#screen {
 
 .touch-controls {
     display: none;
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
-    padding: 0.75rem;
+    width: 100%;
     box-sizing: border-box;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
-    pointer-events: none;
-}
-
-/* Coarse-pointer devices (touchscreens) get the on-screen joystick and
-   buttons; mouse/trackpad devices keep using the keyboard legend below
-   the canvas instead. */
-@media (pointer: coarse) {
-    .touch-controls {
-        display: flex;
-    }
 }
 
 .touch-joystick {
@@ -340,10 +325,25 @@ canvas#screen {
     width: 120px;
     height: 120px;
     border-radius: 50%;
-    background: rgba(108, 204, 255, 0.12);
-    border: 2px solid rgba(108, 204, 255, 0.4);
+    background: radial-gradient(circle at 32% 28%, rgba(108, 204, 255, 0.3), rgba(8, 18, 26, 0.92) 75%);
+    border: 3px solid rgba(108, 204, 255, 0.3);
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.5),
+        inset 0 6px 14px rgba(0, 0, 0, 0.5),
+        inset 0 -3px 6px rgba(108, 204, 255, 0.08);
     touch-action: none;
-    pointer-events: auto;
+}
+
+/* Toggled from TouchControls.ts while a finger is actually down, rather
+   than relying on :active — pointer capture plus the drag frequently
+   carrying the finger outside the base makes :active's own tracking
+   unreliable across browsers. */
+.touch-joystick.touch-joystick-pressed {
+    border-color: rgba(108, 204, 255, 0.6);
+    box-shadow:
+        0 0 16px rgba(108, 204, 255, 0.35),
+        inset 0 6px 14px rgba(0, 0, 0, 0.5),
+        inset 0 -3px 6px rgba(108, 204, 255, 0.15);
 }
 
 .touch-joystick-thumb {
@@ -355,31 +355,39 @@ canvas#screen {
     margin-top: -26px;
     margin-left: -26px;
     border-radius: 50%;
-    background: rgba(108, 204, 255, 0.55);
-    border: 2px solid #6cf;
+    background: radial-gradient(circle at 32% 26%, #e2f6ff, #6cf 45%, #1c6a97 100%);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow:
+        0 4px 10px rgba(0, 0, 0, 0.55),
+        inset 0 3px 5px rgba(255, 255, 255, 0.55),
+        inset 0 -5px 8px rgba(0, 0, 0, 0.3);
     pointer-events: none;
 }
 
 .touch-buttons {
     display: flex;
     gap: 0.75rem;
-    pointer-events: none;
 }
 
 .touch-btn {
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: rgba(224, 176, 64, 0.25);
-    border: 2px solid rgba(224, 176, 64, 0.6);
-    color: #e0b040;
-    font-size: 1.5rem;
+    background: radial-gradient(circle at 32% 26%, #ff9a9a, #d63333 50%, #7a1414 100%);
+    border: 2px solid rgba(255, 170, 170, 0.5);
+    box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 3px 4px rgba(255, 255, 255, 0.5),
+        inset 0 -4px 6px rgba(0, 0, 0, 0.35);
     touch-action: none;
-    pointer-events: auto;
 }
 
 .touch-btn:active {
-    background: rgba(224, 176, 64, 0.5);
+    background: radial-gradient(circle at 32% 26%, #d63333, #8a1f1f 60%, #5c1010 100%);
+    box-shadow:
+        inset 0 3px 6px rgba(0, 0, 0, 0.55),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.15);
+    transform: translateY(2px);
 }
 
 .rewind {
@@ -575,4 +583,20 @@ dialog menu {
 
 .save-list-delete {
     color: #f87171;
+}
+
+/* Coarse-pointer devices (touchscreens) get the on-screen joystick and
+   buttons, in the same document-flow slot below the canvas that the
+   keyboard legend uses on mouse/trackpad devices — swapped for it rather
+   than overlaid on the playfield. Placed last in the stylesheet so it
+   wins the cascade over the unconditional .key-legend/.touch-controls
+   base rules above regardless of source order within those rules. */
+@media (pointer: coarse) {
+    .key-legend {
+        display: none;
+    }
+
+    .touch-controls {
+        display: flex;
+    }
 }
