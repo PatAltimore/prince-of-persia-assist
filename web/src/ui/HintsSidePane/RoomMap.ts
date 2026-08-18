@@ -64,11 +64,27 @@ import { Apple2 } from 'js/apple2';
  *   byte with `idmask` (`%00011111`, EQ.S) before comparing it against a
  *   named piece ID from BGDATA.S — the top 3 bits carry unrelated flags
  *   (`secmask`/`reqmask`). Piece IDs used below: `sword = 22`, `flask
- *   (potion) = 10`, `exit = 16` — confirmed as the actual level-exit
- *   staircase via its handlers (MOVER.S's `openexit`/`animexit`,
- *   FRAMEADV.S's `drawexitb`). BGDATA.S also defines `exit2 = 17`, but
- *   grepping the whole source tree turns up no `cmp #exit2` anywhere — it's
- *   unused, so it's deliberately not treated as a second exit ID here.
+ *   (potion) = 10`, `exit = 16` (labeled "stairs" in the UI, not "exit" —
+ *   real level data shows this piece ID appearing on *multiple* screens in
+ *   the same level, e.g. two separate staircases in one level-2 playthrough,
+ *   so despite its handlers being named `openexit`/`animexit`/`drawexitb`
+ *   in the source, it isn't uniquely "the level's exit"; it's a general
+ *   staircase/vertical-traversal tile, and calling it "exit" in the UI
+ *   overclaimed uniqueness it doesn't have. Actual level-to-level
+ *   completion is driven by other, level-specific logic entirely —
+ *   TOPCTRL.S hardcodes things like "when kid exits screen 23" for level
+ *   12 and "Level 14, screen 5 is princess's room" for the ending, with no
+ *   reference to this tile type at all). BGDATA.S also defines `exit2 =
+ *   17`, which shows up right next to every `exit` tile in practice
+ *   (presumably the other half of the same 2-tile staircase graphic) but
+ *   has no `cmp #exit2` anywhere in the source, so it's not treated as a
+ *   separate marker here.
+ * - None of these piece IDs are re-checked for "has this actually been
+ *   picked up since the level loaded" — CTRL.S's pickup code (`RemoveObj`)
+ *   edits this same BLUETYPE data in place once an object is taken, so a
+ *   badge for an already-collected sword/potion would go stale if this
+ *   were only read once at rebuild() time. See readImportantScreens()'s
+ *   call site for how that's avoided.
  */
 const LEVEL_ADDRESS = 0x03f4;
 const KIDSCRN_ADDRESS = 0x005b;
@@ -130,10 +146,14 @@ const IMPORTANT_BADGES: Record<ImportantKind, string> = {
     exit: 'X',
 };
 
+// Labeled "stairs" rather than "exit" in the UI even though the internal
+// key/piece-ID name (and the source's own routine names) say "exit" — see
+// the file-level comment on PIECE_ID_EXIT for why "exit" overclaims
+// uniqueness this tile doesn't have.
 const IMPORTANT_LABELS: Record<ImportantKind, string> = {
     sword: 'sword',
     potion: 'potion',
-    exit: 'exit',
+    exit: 'stairs',
 };
 
 function readScreenLinks(auxRam: Uint8Array): Map<number, ScreenLinks> {
@@ -561,11 +581,25 @@ export function renderRoomMap(
             return;
         }
 
-        if (screen !== 0 && screen !== currentScreen && coords.has(screen)) {
+        if (screen === 0) {
+            return;
+        }
+
+        // Re-scan for sword/potion/stairs every tick rather than only once
+        // at rebuild() time: CTRL.S's pickup code (RemoveObj) edits this
+        // same BLUETYPE tile data in place when the player actually grabs
+        // an object, so a badge for an already-collected item would
+        // otherwise keep showing until the next level change. This scan is
+        // 24 screens x 30 bytes — cheap enough to redo every tick without
+        // waiting for a specific trigger to know something changed.
+        const auxRamForItems = readAuxRam(apple2);
+        important = auxRamForItems ? readImportantScreens(auxRamForItems) : important;
+
+        if (screen !== currentScreen && coords.has(screen)) {
             currentScreen = screen;
             visited.add(screen);
-            renderVisibility();
         }
+        renderVisibility();
     };
 
     const debug = () => ({
