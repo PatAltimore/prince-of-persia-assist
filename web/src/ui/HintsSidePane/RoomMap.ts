@@ -7,23 +7,28 @@ import { Apple2 } from 'js/apple2';
  * - EQ.S's `level` flag ($03F4: "463 level ds 1") is used below purely as
  *   a *change trigger* ("something happened, try a rebuild"), never
  *   compared against a specific value to decide whether to show or hide
- *   the map — see update()'s comment for why. It's read with a plain
- *   `cpu.read()`, which reflects whatever bank (main/aux) is *currently*
- *   selected by the live RAMRD softswitch — this was previously switched
- *   to an unconditional main-bank-only read (bypassing the softswitch
- *   entirely), on the theory that HIRES.S's rendering code flips RAMRD
- *   many times per frame and an external poll could catch it mid-flip.
- *   That was wrong: confirmed live (comparing `cpu.read()`, main-bank-only,
- *   and aux-bank-only reads side by side during real gameplay) that
- *   `level`'s *live* value tracks the aux bank, not main — the
- *   main-bank-only read was silently stale the whole time, which is what
- *   actually caused the map to get stuck showing an old level (it wasn't
- *   a cutscene-timing issue at all, though the "don't use level's value to
- *   decide show/hide" design turned out to matter for an unrelated, real
- *   reason too — see update()). `cpu.read()` reflects exactly what the
- *   6502 program itself would see reading that address at that instant,
- *   which is definitionally correct regardless of which physical bank is
- *   backing it — there's no more-authoritative source to bypass to.
+ *   the map — see update()'s comment for why. It's read directly from the
+ *   *aux* RAM bank (readAuxRam(), bypassing the live RAMRD softswitch
+ *   entirely), which took two wrong turns to arrive at: first a
+ *   main-bank-only direct read (on the theory that HIRES.S's rendering
+ *   flips RAMRD to aux many times per frame and an external poll could
+ *   catch it mid-flip — true, but backwards about which bank is "real");
+ *   then a plain `cpu.read()` (respecting whatever the softswitch
+ *   currently says), on the theory that this must be correct since it's
+ *   exactly what the 6502 program itself would see. Both were confirmed
+ *   wrong *live*, side by side, during real gameplay: `cpu.read()` and a
+ *   direct aux-bank read agreed on the correct, current value, while a
+ *   direct main-bank read was stuck on stale data — but `cpu.read()`
+ *   still isn't reliable *by itself*, because RAMRD keeps moving under
+ *   it: it happened to catch the aux side when checked in level 1, then
+ *   caught a stale main-bank moment later in level 2 (observed as the
+ *   map successfully building once, then getting stuck mid-level as if
+ *   `level` had dropped back to 0 — it hadn't; the poll just landed on
+ *   the wrong bank that time). Aux is where the game's own code actually
+ *   keeps this value current during real gameplay, so reading it directly
+ *   — the same technique already used for the room-link table below — is
+ *   what actually removes the timing dependency instead of just usually
+ *   getting lucky.
  * - GAMEEQ.S's `KidScrn` ($005B, "611 KidScrn ds 1", part of the "dum Kid"
  *   per-character struct) is the screen the kid is actually standing on —
  *   confirmed by AUTO.S's guard-transfer logic, which reads it as "ldx
@@ -490,13 +495,13 @@ export function renderRoomMap(
     };
 
     const update = () => {
-        // `level` is read purely to notice "something changed, worth a
+        // `level` is read purely to notice "something happened, worth a
         // rebuild attempt" — never compared against a specific value (see
         // the file-level comment). The rebuild itself is keyed off
         // KidScrn, which is what actually decides whether real map data
         // exists to show.
-        const level = cpu.read(LEVEL_ADDRESS);
-        if (level !== lastLevel) {
+        const level = readAuxRam(apple2)?.[LEVEL_ADDRESS];
+        if (level !== undefined && level !== lastLevel) {
             lastLevel = level;
             pendingLevel = level;
             needsRebuild = true;
@@ -540,7 +545,12 @@ export function renderRoomMap(
                 ? `${screen}:${auxRam[base]},${auxRam[base + 1]},${auxRam[base + 2]},${auxRam[base + 3]}`
                 : undefined;
 
-            if (signature !== undefined && signature === pendingLinkSignature && level > 0) {
+            if (
+                signature !== undefined &&
+                signature === pendingLinkSignature &&
+                level !== undefined &&
+                level > 0
+            ) {
                 currentScreen = screen;
                 needsRebuild = false;
                 pendingLinkSignature = undefined;
