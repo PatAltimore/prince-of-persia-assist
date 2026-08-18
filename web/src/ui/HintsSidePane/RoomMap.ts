@@ -7,20 +7,23 @@ import { Apple2 } from 'js/apple2';
  * - EQ.S's `level` flag ($03F4: "463 level ds 1") is used below purely as
  *   a *change trigger* ("something happened, try a rebuild"), never
  *   compared against a specific value to decide whether to show or hide
- *   the map — deliberately, since `level` lives in the $0200-$BFFF range,
- *   which HIRES.S's rendering code flips between main and aux RAM (via the
- *   RAMRD softswitch, $C002/$C003) *many times per frame* while drawing
- *   the screen. That's frequent enough that a plain `cpu.read()` doesn't
- *   just occasionally glitch — in practice, every misread re-triggers the
- *   "wait for the level to settle" gate in update(), which blocks live
- *   screen-tracking each time it fires, even though a perfectly good map
- *   is already built. So `level` is read via readRamBank() (bypassing
- *   whatever the live softswitch state happens to be) instead of
- *   cpu.read() — cheap enough to do every tick since it's a single byte,
- *   not a full apple2.getState() snapshot. The actual graph is always
- *   built from KidScrn (see below), never from `level` itself, so this
- *   only needs to be *reasonably* stable, not perfectly so — but
- *   "reasonably" still means "not glitching essentially every frame."
+ *   the map — see update()'s comment for why. It's read with a plain
+ *   `cpu.read()`, which reflects whatever bank (main/aux) is *currently*
+ *   selected by the live RAMRD softswitch — this was previously switched
+ *   to an unconditional main-bank-only read (bypassing the softswitch
+ *   entirely), on the theory that HIRES.S's rendering code flips RAMRD
+ *   many times per frame and an external poll could catch it mid-flip.
+ *   That was wrong: confirmed live (comparing `cpu.read()`, main-bank-only,
+ *   and aux-bank-only reads side by side during real gameplay) that
+ *   `level`'s *live* value tracks the aux bank, not main — the
+ *   main-bank-only read was silently stale the whole time, which is what
+ *   actually caused the map to get stuck showing an old level (it wasn't
+ *   a cutscene-timing issue at all, though the "don't use level's value to
+ *   decide show/hide" design turned out to matter for an unrelated, real
+ *   reason too — see update()). `cpu.read()` reflects exactly what the
+ *   6502 program itself would see reading that address at that instant,
+ *   which is definitionally correct regardless of which physical bank is
+ *   backing it — there's no more-authoritative source to bypass to.
  * - GAMEEQ.S's `KidScrn` ($005B, "611 KidScrn ds 1", part of the "dum Kid"
  *   per-character struct) is the screen the kid is actually standing on —
  *   confirmed by AUTO.S's guard-transfer logic, which reads it as "ldx
@@ -81,12 +84,15 @@ const CELL_HEIGHT_PX = 24;
 const CELL_GAP_PX = 3;
 
 /**
- * Direct read-only access to a RAM bank's live backing array (0 = main,
- * 1 = aux) — bypassing whatever the live RAMRD/RAMWRT softswitch state
- * happens to be (see the file-level comment on `level`), and bypassing
- * the cost of `apple2.getState()`, which besides copying both 48KB RAM
- * banks also serializes CPU/video/IO/MMU state this doesn't need. Cheap
- * enough to call every tick.
+ * Direct read-only access to the aux RAM bank's live backing array —
+ * bypassing the cost of `apple2.getState()`, which copies both 48KB RAM
+ * banks and serializes CPU/video/IO/MMU state this doesn't need, so it's
+ * cheap enough to call every tick. Unlike `level`/`KidScrn` (read via
+ * `cpu.read()` — see the file-level comment on why that's the correct
+ * choice there), the level's room-link table lives in aux RAM full stop —
+ * there's no "which bank is it really in" question for this one, so
+ * bypassing the softswitch here is just an optimization, not a
+ * correctness fix.
  *
  * `ram` is a private field on Apple2 (js/apple2.ts), not part of its
  * public API — this project already reaches into it directly elsewhere
@@ -95,8 +101,8 @@ const CELL_GAP_PX = 3;
  * pinned vendored dependency (web/vendor/apple2js), so this is a
  * deliberate, documented exception rather than an accident.
  */
-function readRamBank(apple2: Apple2, bank: 0 | 1): Uint8Array | undefined {
-    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[bank]?.mem;
+function readAuxRam(apple2: Apple2): Uint8Array | undefined {
+    return (apple2 as unknown as { ram?: Array<{ mem: Uint8Array }> }).ram?.[1]?.mem;
 }
 
 interface ScreenLinks {
@@ -412,7 +418,7 @@ export function renderRoomMap(
         cells = new Map();
         visited = new Set([currentScreen]);
 
-        const auxRam = readRamBank(apple2, 1);
+        const auxRam = readAuxRam(apple2);
         links = auxRam ? readScreenLinks(auxRam) : new Map();
         important = auxRam ? readImportantScreens(auxRam) : new Map();
         coords = layoutScreens(links, currentScreen);
@@ -489,8 +495,8 @@ export function renderRoomMap(
         // the file-level comment). The rebuild itself is keyed off
         // KidScrn, which is what actually decides whether real map data
         // exists to show.
-        const level = readRamBank(apple2, 0)?.[LEVEL_ADDRESS];
-        if (level !== undefined && level !== lastLevel) {
+        const level = cpu.read(LEVEL_ADDRESS);
+        if (level !== lastLevel) {
             lastLevel = level;
             pendingLevel = level;
             needsRebuild = true;
@@ -500,22 +506,8 @@ export function renderRoomMap(
         const screen = cpu.read(KIDSCRN_ADDRESS);
 
         if (needsRebuild) {
-            if (screen === 0 || level === undefined || level <= 0) {
-                // Either the kid hasn't spawned into the new level yet, or
-                // `level` itself is (still, or again) 0 — which happens for
-                // real during the "Princess cut" cutscene some levels play
-                // before the level actually starts (MASTER.S's CUTPRINCESS,
-                // triggered for levels 2/4/6/8/9/12): no kid is present, and
-                // the cutscene's own graphics briefly occupy the same aux
-                // memory the level blueprint uses. Waiting for `level > 0`
-                // here (not just KidScrn) avoids locking onto whatever
-                // stale/leftover room-link data happens to still be sitting
-                // in that shared aux region during the cutscene — this is
-                // *not* the same as the old "level === 0 hides the map"
-                // bug: this only gates starting a fresh rebuild attempt, it
-                // never touches an already-built map, so there's no way to
-                // get stuck once a real level actually starts.
-                return;
+            if (screen === 0) {
+                return; // kid hasn't spawned into the new level yet
             }
             // Don't trust the room-link table the instant KidScrn becomes
             // valid: after a level change, the level's own load routine
@@ -528,13 +520,27 @@ export function renderRoomMap(
             // bytes to read the same on two consecutive ticks — once the
             // load is done they stop changing, whereas mid-load reads
             // that keep shifting won't match twice in a row.
-            const auxRam = readRamBank(apple2, 1);
+            //
+            // `level > 0` is required too, but only as part of the final
+            // commit check below, not as a blanket early-return here: some
+            // levels (2/4/6/8/9/12) play a "Princess cut" cutscene before
+            // the level actually starts (MASTER.S's CUTPRINCESS), during
+            // which there's no kid on screen and `level` genuinely reads 0
+            // — briefly reusing the same aux memory the level blueprint
+            // occupies for cutscene graphics instead. An early return
+            // there would interrupt the two-consecutive-ticks signature
+            // tracking below every time it happened to land on a 0 read,
+            // which turned out to make the whole thing far more fragile
+            // than intended — this way, a 0 reading just fails *this*
+            // commit attempt (same as any other still-changing signature)
+            // without resetting progress made on unrelated ticks.
+            const auxRam = readAuxRam(apple2);
             const base = MAP_TABLE_AUX_ADDRESS + (screen - 1) * 4;
             const signature = auxRam
                 ? `${screen}:${auxRam[base]},${auxRam[base + 1]},${auxRam[base + 2]},${auxRam[base + 3]}`
                 : undefined;
 
-            if (signature !== undefined && signature === pendingLinkSignature) {
+            if (signature !== undefined && signature === pendingLinkSignature && level > 0) {
                 currentScreen = screen;
                 needsRebuild = false;
                 pendingLinkSignature = undefined;
