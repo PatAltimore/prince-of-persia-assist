@@ -159,13 +159,36 @@ canvas#screen {
 }
 
 .room-map-grid-wrap {
+    position: relative;
     overflow-x: auto;
     padding-bottom: 0.25rem;
 }
 
 .room-map-grid {
+    position: relative;
+    z-index: 1;
     display: grid;
     gap: 3px;
+}
+
+.room-map-connectors {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.room-map-jump-line {
+    stroke: #e0b040;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    opacity: 0.75;
+}
+
+.room-map-jump-line.room-map-jump-hidden {
+    visibility: hidden;
 }
 
 .room-map-cell {

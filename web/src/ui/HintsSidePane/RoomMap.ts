@@ -75,6 +75,10 @@ const PIECE_ID_SWORD = 22;
 
 const CELL_WIDTH_PX = 34;
 const CELL_HEIGHT_PX = 24;
+// Keep in sync with .room-map-grid's CSS `gap` — used to compute pixel
+// positions for the connector-line overlay, which CSS grid layout doesn't
+// expose directly.
+const CELL_GAP_PX = 3;
 
 /**
  * Direct read-only access to a RAM bank's live backing array (0 = main,
@@ -174,6 +178,18 @@ function readImportantScreens(auxRam: Uint8Array): Map<number, Set<ImportantKind
  * exactly mirroring the levels' real physical layout (that's how the
  * level designer placed connected screens), so no fancier graph-layout
  * algorithm is needed.
+ *
+ * This assumes the graph is planar — every link's reverse also points
+ * back the opposite direction, so there's exactly one consistent way to
+ * place each screen relative to its neighbors. Real levels aren't
+ * guaranteed to hold to that: Mechner's level design uses non-obvious
+ * shortcuts (trapdoors, drops) whose link doesn't correspond to physical
+ * adjacency at all. When BFS reaches an already-placed screen via a
+ * second, conflicting link, this keeps whichever placement it found
+ * first and silently drops the conflicting one from the grid's
+ * coordinates — the link itself isn't lost, though: see
+ * findJumpEdges(), which is what actually surfaces these to the player
+ * instead of just leaving them as an unexplained gap in the grid.
  */
 function layoutScreens(
     links: Map<number, ScreenLinks>,
@@ -204,6 +220,53 @@ function layoutScreens(
         }
     }
     return coords;
+}
+
+interface JumpEdge {
+    a: number;
+    b: number;
+}
+
+/**
+ * Finds every link whose two screens *aren't* grid-adjacent in `coords` —
+ * these are the non-planar "jumps" layoutScreens() can't represent by
+ * position alone (see its doc comment). Each unordered pair is reported
+ * once even if the link exists in both directions.
+ */
+function findJumpEdges(
+    links: Map<number, ScreenLinks>,
+    coords: Map<number, Coord>
+): JumpEdge[] {
+    const seen = new Set<string>();
+    const edges: JumpEdge[] = [];
+    for (const [screen, coord] of coords) {
+        const link = links.get(screen);
+        if (!link) {
+            continue;
+        }
+        for (const neighbor of [link.left, link.right, link.up, link.down]) {
+            if (neighbor === 0 || neighbor === screen) {
+                continue;
+            }
+            const neighborCoord = coords.get(neighbor);
+            if (!neighborCoord) {
+                continue; // not placed at all (e.g. a different connected component)
+            }
+            const dx = Math.abs(coord.x - neighborCoord.x);
+            const dy = Math.abs(coord.y - neighborCoord.y);
+            const isGridAdjacent = (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+            if (isGridAdjacent) {
+                continue;
+            }
+            const key = screen < neighbor ? `${screen}-${neighbor}` : `${neighbor}-${screen}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            edges.push({ a: screen, b: neighbor });
+        }
+    }
+    return edges;
 }
 
 /**
@@ -241,6 +304,14 @@ export function renderRoomMap(
     grid.className = 'room-map-grid';
     gridWrap.appendChild(grid);
 
+    // Overlays `grid`, drawing a connector line for any link that *doesn't*
+    // land in a grid-adjacent cell — see findJumpEdges()'s doc comment for
+    // why that happens and why it's drawn explicitly rather than treated
+    // as a layout bug.
+    const connectorsSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    connectorsSvg.setAttribute('class', 'room-map-connectors');
+    gridWrap.appendChild(connectorsSvg);
+
     const legend = document.createElement('p');
     legend.className = 'room-map-legend';
     legend.hidden = true;
@@ -256,9 +327,17 @@ export function renderRoomMap(
     });
     container.appendChild(legend);
 
+    const jumpLegend = document.createElement('p');
+    jumpLegend.className = 'room-map-legend room-map-jump-legend';
+    jumpLegend.hidden = true;
+    jumpLegend.textContent =
+        '- - - dashed line: a shortcut/drop that connects to a room not physically next to it';
+    container.appendChild(jumpLegend);
+
     let links = new Map<number, ScreenLinks>();
     let coords = new Map<number, Coord>();
     let cells = new Map<number, HTMLDivElement>();
+    let jumpLines: Array<{ a: number; b: number; el: SVGLineElement }> = [];
     let important = new Map<number, Set<ImportantKind>>();
     let visited = new Set<number>();
     let currentScreen = 0;
@@ -285,6 +364,7 @@ export function renderRoomMap(
             }
         }
 
+        const shown = new Set<number>();
         for (const [screen, cell] of cells) {
             const isVisited = visited.has(screen);
             const isFrontier = !isVisited && frontier.has(screen);
@@ -296,8 +376,12 @@ export function renderRoomMap(
             // or connections — a middle ground between full fog and a full
             // reveal, and the whole point of a *hints* tool.
             const isImportantHint = !isVisited && !isFrontier && !!kinds;
+            const isHidden = !isVisited && !isFrontier && !isImportantHint;
+            if (!isHidden) {
+                shown.add(screen);
+            }
 
-            cell.classList.toggle('room-map-hidden', !isVisited && !isFrontier && !isImportantHint);
+            cell.classList.toggle('room-map-hidden', isHidden);
             cell.classList.toggle('room-map-frontier', isFrontier);
             cell.classList.toggle('room-map-important-hint', isImportantHint);
             cell.classList.toggle('room-map-current', isCurrent);
@@ -312,6 +396,14 @@ export function renderRoomMap(
             cell.title = kinds
                 ? [...kinds].map((k) => IMPORTANT_LABELS[k]).join(', ')
                 : '';
+        }
+
+        // A jump line only makes sense once both ends are at least
+        // hinted-at — otherwise it'd draw a line pointing at a room the
+        // player has no idea exists yet, which isn't a hint, it's a
+        // spoiler of the level's shape.
+        for (const { a, b, el } of jumpLines) {
+            el.classList.toggle('room-map-jump-hidden', !shown.has(a) || !shown.has(b));
         }
     };
 
@@ -328,6 +420,7 @@ export function renderRoomMap(
         emptyState.hidden = coords.size > 0;
         gridWrap.hidden = coords.size === 0;
         legend.hidden = coords.size === 0;
+        jumpLegend.hidden = true; // re-shown below once jump edges (if any) are known
         // pendingLevel is whatever `level` most recently read as when this
         // rebuild was triggered — shown only once we actually have real
         // map data to back it up, not just because `level` changed (see
@@ -350,8 +443,10 @@ export function renderRoomMap(
             maxY = Math.max(maxY, y);
         }
 
-        grid.style.gridTemplateColumns = `repeat(${maxX - minX + 1}, ${CELL_WIDTH_PX}px)`;
-        grid.style.gridTemplateRows = `repeat(${maxY - minY + 1}, ${CELL_HEIGHT_PX}px)`;
+        const numCols = maxX - minX + 1;
+        const numRows = maxY - minY + 1;
+        grid.style.gridTemplateColumns = `repeat(${numCols}, ${CELL_WIDTH_PX}px)`;
+        grid.style.gridTemplateRows = `repeat(${numRows}, ${CELL_HEIGHT_PX}px)`;
 
         for (const [screen, { x, y }] of coords) {
             const cell = document.createElement('div');
@@ -361,6 +456,29 @@ export function renderRoomMap(
             grid.appendChild(cell);
             cells.set(screen, cell);
         }
+
+        const totalWidthPx = numCols * CELL_WIDTH_PX + (numCols - 1) * CELL_GAP_PX;
+        const totalHeightPx = numRows * CELL_HEIGHT_PX + (numRows - 1) * CELL_GAP_PX;
+        connectorsSvg.setAttribute('width', String(totalWidthPx));
+        connectorsSvg.setAttribute('height', String(totalHeightPx));
+        connectorsSvg.innerHTML = '';
+        const cellCenterPx = (x: number, y: number) => ({
+            cx: (x - minX) * (CELL_WIDTH_PX + CELL_GAP_PX) + CELL_WIDTH_PX / 2,
+            cy: (y - minY) * (CELL_HEIGHT_PX + CELL_GAP_PX) + CELL_HEIGHT_PX / 2,
+        });
+        jumpLines = findJumpEdges(links, coords).map(({ a, b }) => {
+            const posA = cellCenterPx(coords.get(a)!.x, coords.get(a)!.y);
+            const posB = cellCenterPx(coords.get(b)!.x, coords.get(b)!.y);
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('class', 'room-map-jump-line');
+            line.setAttribute('x1', String(posA.cx));
+            line.setAttribute('y1', String(posA.cy));
+            line.setAttribute('x2', String(posB.cx));
+            line.setAttribute('y2', String(posB.cy));
+            connectorsSvg.appendChild(line);
+            return { a, b, el: line };
+        });
+        jumpLegend.hidden = jumpLines.length === 0;
 
         renderVisibility();
     };

@@ -42,6 +42,8 @@ async function main() {
     let scrubberHandle: { syncRange: () => void } | undefined;
     let roomMapHandle: { update: () => void; debug: () => unknown } | undefined;
     let diskSwapHandle: { onTick: () => void } | undefined;
+    let sideABuffer: ArrayBuffer | undefined;
+    let sideBBuffer: ArrayBuffer | undefined;
     const recorder = new RewindRecorder(
         rewindBuffer,
         REWIND_SNAPSHOT_INTERVAL_MS,
@@ -71,9 +73,43 @@ async function main() {
     canvas.addEventListener('click', () => canvas.focus());
     canvas.focus();
 
-    resetBtn.addEventListener('click', () => {
+    /**
+     * A bare `apple2.reset()` simulates a hardware Ctrl-RESET: it jumps to
+     * the ROM reset vector, which on a real Apple II auto-boots from
+     * whatever's in the drive — but it does *not* touch the drive's
+     * contents. If the player has reached level 3+, diskSwap.ts has
+     * already transparently swapped the emulated drive to side 2 (POP's
+     * own disk driver asks for it, mid-game); side 2 has no bootstrap
+     * track of its own, so resetting while it's "inserted" tries to boot
+     * from unbootable media — this is what produced garbled screens
+     * (reported as the screen filling with repeated characters) instead
+     * of a working restart. Reloading side 1 fresh first — mirroring
+     * exactly what this app's own initial boot does — guarantees there's
+     * always something bootable in the drive before the reset fires, and
+     * replacing diskSwapHandle (rather than just calling disk2.setBinary
+     * directly) resets attachAutoDiskSwap's own notion of which side is
+     * "currently" loaded, so it doesn't think it's already on side 1
+     * (skipping a real swap later) or side 2 (attempting a swap to a side
+     * that's already loaded).
+     */
+    async function resetToSideA() {
+        if (!sideABuffer || !sideBBuffer) {
+            return; // disks haven't finished loading yet
+        }
+        diskSwapHandle = undefined; // pause auto-swap while the drive's contents change under it
+        apple2.stop();
+        await disk2.setBinary(1, 'PrinceOfPersia_5.25_SideA.nib', 'nib', sideABuffer);
+        diskSwapHandle = attachAutoDiskSwap(cpu, disk2, apple2.getIO(), 1, {
+            1: { name: 'PrinceOfPersia_5.25_SideA.nib', data: sideABuffer },
+            2: { name: 'PrinceOfPersia_5.25_SideB.nib', data: sideBBuffer },
+        });
         apple2.reset();
+        apple2.run();
         canvas.focus();
+    }
+
+    resetBtn.addEventListener('click', () => {
+        void resetToSideA();
     });
     scrubberHandle = attachRewindScrubber(rewindSlider, apple2, rewindBuffer, canvas, rewindThumbnail);
     attachRewindButton(rewind5sBtn, apple2, rewindBuffer, canvas, REWIND_BUTTON_SECONDS);
@@ -97,15 +133,17 @@ async function main() {
         statusEl.textContent = 'Prince of Persia loaded';
 
         // Prefetch both sides once so mid-game auto-swaps (see
-        // diskSwap.ts) don't wait on a network round-trip.
-        const [sideAData, sideBData] = await Promise.all([
+        // diskSwap.ts) don't wait on a network round-trip. Kept around
+        // (not just local to this block) so the reset button can also
+        // reload side 1 fresh — see resetToSideA().
+        [sideABuffer, sideBBuffer] = await Promise.all([
             fetch(DISK_A_URL).then((r) => r.arrayBuffer()),
             fetch(DISK_B_URL).then((r) => r.arrayBuffer()),
         ]);
         const initialSide: DiskSide = 1;
         diskSwapHandle = attachAutoDiskSwap(cpu, disk2, apple2.getIO(), initialSide, {
-            1: { name: 'PrinceOfPersia_5.25_SideA.nib', data: sideAData },
-            2: { name: 'PrinceOfPersia_5.25_SideB.nib', data: sideBData },
+            1: { name: 'PrinceOfPersia_5.25_SideA.nib', data: sideABuffer },
+            2: { name: 'PrinceOfPersia_5.25_SideB.nib', data: sideBBuffer },
         });
     } catch (err) {
         statusEl.textContent = 'Failed to load disk';
