@@ -500,8 +500,22 @@ export function renderRoomMap(
         const screen = cpu.read(KIDSCRN_ADDRESS);
 
         if (needsRebuild) {
-            if (screen === 0) {
-                return; // kid hasn't spawned into the new level yet
+            if (screen === 0 || level === undefined || level <= 0) {
+                // Either the kid hasn't spawned into the new level yet, or
+                // `level` itself is (still, or again) 0 — which happens for
+                // real during the "Princess cut" cutscene some levels play
+                // before the level actually starts (MASTER.S's CUTPRINCESS,
+                // triggered for levels 2/4/6/8/9/12): no kid is present, and
+                // the cutscene's own graphics briefly occupy the same aux
+                // memory the level blueprint uses. Waiting for `level > 0`
+                // here (not just KidScrn) avoids locking onto whatever
+                // stale/leftover room-link data happens to still be sitting
+                // in that shared aux region during the cutscene — this is
+                // *not* the same as the old "level === 0 hides the map"
+                // bug: this only gates starting a fresh rebuild attempt, it
+                // never touches an already-built map, so there's no way to
+                // get stuck once a real level actually starts.
+                return;
             }
             // Don't trust the room-link table the instant KidScrn becomes
             // valid: after a level change, the level's own load routine
