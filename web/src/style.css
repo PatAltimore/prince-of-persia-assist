@@ -352,19 +352,18 @@ canvas#screen {
     gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
-    /* Right padding is deliberately larger than left: it's set so the
-       button's edge sits as far from the right edge as the joystick
-       ball's edge sits from the left edge (0.75rem container padding +
-       3px ring border + 34px centering inset within the 120px ring for
-       the 52px ball = 49px total), not just matching the ring's own
-       0.75rem inset. */
-    padding: 0 49px 0 0.75rem;
+    padding: 0 0.75rem;
 }
 
+/* Pulled toward the center (a fixed gap between the two groups) rather
+   than spread to the row's full width — holding the phone one-handed
+   with thumbs reaching all the way out to controls pinned at the screen
+   edges was awkward. */
 .touch-controls-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
+    gap: 3rem;
     width: 100%;
 }
 
