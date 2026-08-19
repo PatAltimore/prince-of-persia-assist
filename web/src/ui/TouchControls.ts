@@ -93,8 +93,26 @@ export function attachTouchControls(
             // slides outside the base); engagement and paddle updates
             // below must not depend on it succeeding.
         }
+        const wasAlreadyEngaged = engaged;
         engageJoystickMode();
-        updateFromPointer(e);
+        if (wasAlreadyEngaged) {
+            updateFromPointer(e);
+        }
+        // On the very first engagement, deliberately leave the paddle at
+        // its neutral center instead of immediately applying this touch's
+        // position. The Ctrl+J we just dispatched only *queues* a
+        // keypress — the game's SETCENTER calibration (GRAFIX.S) doesn't
+        // actually run until a later emulator tick polls the keyboard,
+        // and it calibrates its "center" thresholds around whatever
+        // paddle reading is live *at that moment*. Setting the paddle to
+        // this touch's position right now would race ahead of that and
+        // get baked in as the calibrated center — most visibly, a first
+        // touch landing anywhere near full-right would make SETCENTER
+        // treat "full right" as center, so pushing right could never
+        // register again. Leaving the paddle untouched here means
+        // calibration always happens against true center; the first
+        // pointermove (which necessarily comes later, after the game has
+        // had time to process the keypress) is what starts driving it.
     });
 
     // Deliberately bound on window, not joystickBase: a real drag routinely

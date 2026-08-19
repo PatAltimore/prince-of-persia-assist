@@ -363,7 +363,7 @@ canvas#screen {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 3rem;
+    gap: 5rem;
     width: 100%;
 }
 
