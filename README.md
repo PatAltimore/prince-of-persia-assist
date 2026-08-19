@@ -2,6 +2,8 @@
 
 A browser-playable Prince of Persia (Apple II, 1989) emulator, built from Jordan Mechner's officially released 6502 assembly source, paired with a hints side panel linking into [Code Museum](https://blue-rock-0e6a0831e.7.azurestaticapps.net/#/prince-of-persia), developer debug cheats, save states, and a gameplay rewind buffer.
 
+Play the game in your desktop or mobile browser at [https://lively-sea-0ae2ef51e.7.azurestaticapps.net/](https://lively-sea-0ae2ef51e.7.azurestaticapps.net/).
+
 ## Disclaimer
 
 The Prince of Persia Apple II source code was released by Jordan Mechner for **study and personal use**. This does **not** constitute a grant of rights to the Prince of Persia game itself — Ubisoft owns and retains all rights to the Prince of Persia franchise. This project is a **non-commercial, educational fan project**, not affiliated with or endorsed by Ubisoft or Jordan Mechner.

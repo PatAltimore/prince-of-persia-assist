@@ -29,6 +29,16 @@ interface CheatCode {
     keys: string;
     label: string;
     action: CheatAction;
+    /**
+     * True for cheats SPECIALK.S only reads once `develment` is nonzero —
+     * both `DevelKeys`'s `checkcodes` (BOOST/R/ZAP/Z/TINA — not just the
+     * single-key TempDevel section) and `TempDevel` itself start with
+     * `lda develment / beq ]rts`, bailing out entirely with dev mode off.
+     * Tapping one of these auto-sends "POP" first if it isn't already on
+     * (see invokeCheat) — same real code path as the master switch, just
+     * done for you.
+     */
+    requiresPop?: boolean;
 }
 
 function key(k: string, ctrl = false): CheatAction {
@@ -71,35 +81,43 @@ const ALWAYS_ACTIVE: CheatCode[] = [
 const SECRET_CODES: CheatCode[] = [
     { keys: 'POP', label: 'Enable developer/cheat mode — required for everything below', action: sequence('POP') },
     { keys: 'SKIP', label: 'Skip ahead a level (works anytime; capped higher once POP is on)', action: sequence('SKIP') },
-    { keys: 'BOOST', label: 'Max out strength (dev mode)', action: sequence('BOOST') },
-    { keys: 'R', label: 'Restore / recharge the strength meter (dev mode)', action: sequence('R') },
-    { keys: 'ZAP', label: 'Reduce the current guard to 0 HP (dev mode)', action: sequence('ZAP') },
-    { keys: 'Z', label: 'Reduce the current guard to 1 HP (dev mode)', action: sequence('Z') },
-    { keys: 'TINA', label: 'Warp straight to the ending, level 14 (dev mode)', action: sequence('TINA') },
+    { keys: 'BOOST', label: 'Max out strength (dev mode)', action: sequence('BOOST'), requiresPop: true },
+    { keys: 'R', label: 'Restore / recharge the strength meter (dev mode)', action: sequence('R'), requiresPop: true },
+    { keys: 'ZAP', label: 'Reduce the current guard to 0 HP (dev mode)', action: sequence('ZAP'), requiresPop: true },
+    { keys: 'Z', label: 'Reduce the current guard to 1 HP (dev mode)', action: sequence('Z'), requiresPop: true },
+    { keys: 'TINA', label: 'Warp straight to the ending, level 14 (dev mode)', action: sequence('TINA'), requiresPop: true },
 ];
 
 /** SPECIALK.S's TempDevel — single keypresses, active once "POP" is on. */
 const DEV_MODE_KEYS: CheatCode[] = [
-    { keys: 'Ctrl+Q', label: 'Antimatter (temporary invincibility)', action: key('q', true) },
-    { keys: 'Shift+S', label: 'Increase strength', action: key('S') },
-    { keys: 'Shift+D', label: 'Decrease strength', action: key('D') },
-    { keys: 'Shift+F', label: 'Increase max strength', action: key('F') },
-    { keys: ')', label: 'Skip to the next level', action: key(')') },
-    { keys: '+', label: 'Skip ahead 5 levels', action: key('+') },
-    { keys: 'Ctrl+E', label: 'Move up one block', action: key('e', true) },
-    { keys: 'Shift+A', label: 'Toggle auto-play', action: key('A') },
-    { keys: '<', label: 'Rewind the in-game clock', action: key('<') },
-    { keys: '>', label: 'Advance the in-game clock', action: key('>') },
-    { keys: 'Shift+M', label: 'Set time remaining to max', action: key('M') },
-    { keys: '*', label: 'Erase saved game', action: key('*') },
-    { keys: 'Ctrl+C', label: 'Reload the current level', action: key('c', true) },
-    { keys: 'Ctrl+Z', label: 'Reboot', action: key('z', true) },
-    { keys: 'Ctrl+F', label: 'Force a screen redraw', action: key('f', true) },
-    { keys: 'Shift+B', label: 'Toggle blackout', action: key('B') },
-    { keys: ']', label: 'Speed up the game loop', action: key(']') },
-    { keys: '[', label: 'Slow down the game loop', action: key('[') },
-    { keys: '@', label: 'Screen dump', action: key('@') },
+    { keys: 'Ctrl+Q', label: 'Antimatter (temporary invincibility)', action: key('q', true), requiresPop: true },
+    { keys: 'Shift+S', label: 'Increase strength', action: key('S'), requiresPop: true },
+    { keys: 'Shift+D', label: 'Decrease strength', action: key('D'), requiresPop: true },
+    { keys: 'Shift+F', label: 'Increase max strength', action: key('F'), requiresPop: true },
+    { keys: ')', label: 'Skip to the next level', action: key(')'), requiresPop: true },
+    { keys: '+', label: 'Skip ahead 5 levels', action: key('+'), requiresPop: true },
+    { keys: 'Ctrl+E', label: 'Move up one block', action: key('e', true), requiresPop: true },
+    { keys: 'Shift+A', label: 'Toggle auto-play', action: key('A'), requiresPop: true },
+    { keys: '<', label: 'Rewind the in-game clock', action: key('<'), requiresPop: true },
+    { keys: '>', label: 'Advance the in-game clock', action: key('>'), requiresPop: true },
+    { keys: 'Shift+M', label: 'Set time remaining to max', action: key('M'), requiresPop: true },
+    { keys: '*', label: 'Erase saved game', action: key('*'), requiresPop: true },
+    { keys: 'Ctrl+C', label: 'Reload the current level', action: key('c', true), requiresPop: true },
+    { keys: 'Ctrl+Z', label: 'Reboot', action: key('z', true), requiresPop: true },
+    { keys: 'Ctrl+F', label: 'Force a screen redraw', action: key('f', true), requiresPop: true },
+    { keys: 'Shift+B', label: 'Toggle blackout', action: key('B'), requiresPop: true },
+    { keys: ']', label: 'Speed up the game loop', action: key(']'), requiresPop: true },
+    { keys: '[', label: 'Slow down the game loop', action: key('['), requiresPop: true },
+    { keys: '@', label: 'Screen dump', action: key('@'), requiresPop: true },
 ];
+
+/**
+ * SPECIALK.S's `develment` flag (see checkcodes above). Resolved from
+ * build-tooling/pop-build/obj/AUTO.LST (`020E: 00  446 develment ds 1`) —
+ * same technique as JOYON_ADDRESS/LEVEL_ADDRESS elsewhere in this app.
+ * Confirmed live: reads 0 before "POP" is typed, 1 immediately after.
+ */
+const DEVELMENT_ADDRESS = 0x020e;
 
 function dispatchKeyAction(canvas: HTMLCanvasElement, action: { type: 'key'; key: string; ctrl?: boolean }): void {
     const opts = { bubbles: true } as const;
@@ -113,7 +131,52 @@ function dispatchKeyAction(canvas: HTMLCanvasElement, action: { type: 'key'; key
     }
 }
 
-function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, action: CheatAction): void {
+/**
+ * Polls `develment` until the game actually flips it on (or `timeoutMs`
+ * elapses as a safety net). `setKeyBuffer`'s characters are only consumed
+ * as the game's own keyboard-strobe read pulls each one — see the
+ * `sequence` case's doc comment above — so "POP" typically takes a few
+ * frames, not one tick, to fully register.
+ */
+function waitForDevelMode(apple2: Apple2, timeoutMs = 1500): Promise<void> {
+    return new Promise((resolve) => {
+        const cpu = apple2.getCPU();
+        const deadline = Date.now() + timeoutMs;
+        function poll() {
+            if (cpu.read(DEVELMENT_ADDRESS) !== 0 || Date.now() > deadline) {
+                resolve();
+                return;
+            }
+            setTimeout(poll, 50);
+        }
+        poll();
+    });
+}
+
+// Shared across every trigger so two POP-requiring cheats tapped in quick
+// succession (before the first "POP" has finished being typed) await the
+// same in-flight injection instead of each restarting setKeyBuffer's
+// character queue and corrupting one another's sequence.
+let popInjectionPromise: Promise<void> | null = null;
+
+function ensurePopActive(apple2: Apple2): Promise<void> {
+    if (apple2.getCPU().read(DEVELMENT_ADDRESS) !== 0) {
+        return Promise.resolve();
+    }
+    if (!popInjectionPromise) {
+        apple2.getIO().setKeyBuffer('POP');
+        popInjectionPromise = waitForDevelMode(apple2).finally(() => {
+            popInjectionPromise = null;
+        });
+    }
+    return popInjectionPromise;
+}
+
+async function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, cheat: CheatCode): Promise<void> {
+    if (cheat.requiresPop) {
+        await ensurePopActive(apple2);
+    }
+    const { action } = cheat;
     if (action.type === 'sequence') {
         apple2.getIO().setKeyBuffer(action.text);
     } else {
@@ -125,7 +188,8 @@ function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, action: CheatAct
 function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas: HTMLCanvasElement): HTMLUListElement {
     const list = document.createElement('ul');
     list.className = className;
-    for (const { keys, label, action } of codes) {
+    for (const cheat of codes) {
+        const { keys, label } = cheat;
         const item = document.createElement('li');
         const trigger = document.createElement('button');
         trigger.type = 'button';
@@ -138,12 +202,13 @@ function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas
         trigger.appendChild(kbd);
         trigger.appendChild(desc);
         trigger.addEventListener('click', () => {
-            invokeCheat(apple2, canvas, action);
-            trigger.classList.remove('cheat-trigger-sent');
-            // Force a reflow so re-adding the class restarts the CSS
-            // animation even if the same cheat is tapped again quickly.
-            void trigger.offsetWidth;
-            trigger.classList.add('cheat-trigger-sent');
+            void invokeCheat(apple2, canvas, cheat).then(() => {
+                trigger.classList.remove('cheat-trigger-sent');
+                // Force a reflow so re-adding the class restarts the CSS
+                // animation even if the same cheat is tapped again quickly.
+                void trigger.offsetWidth;
+                trigger.classList.add('cheat-trigger-sent');
+            });
         });
         trigger.addEventListener('animationend', () => {
             trigger.classList.remove('cheat-trigger-sent');
@@ -181,7 +246,7 @@ export function renderCheatCodes(container: HTMLElement, apple2: Apple2, canvas:
 
     const intro = document.createElement('p');
     intro.className = 'cheat-intro';
-    intro.textContent = "Jordan Mechner's own debug/cheat key bindings from the source. All of these are active in this build (DebugKeys=1). Tap any entry to send it to the game.";
+    intro.textContent = "Jordan Mechner's own debug/cheat key bindings from the source. All of these are active in this build (DebugKeys=1). Tap any entry to send it to the game — dev-mode-only cheats send POP first automatically if it isn't already active.";
     container.appendChild(intro);
 
     container.appendChild(buildList(ALWAYS_ACTIVE, 'cheat-list', apple2, canvas));
@@ -189,6 +254,6 @@ export function renderCheatCodes(container: HTMLElement, apple2: Apple2, canvas:
     addSectionHeading(container, 'Type these letter sequences (no modifier keys):');
     container.appendChild(buildList(SECRET_CODES, 'cheat-list', apple2, canvas));
 
-    addSectionHeading(container, 'Single-key cheats, active once "POP" has been typed:');
+    addSectionHeading(container, 'Single-key cheats, dev mode (POP sent automatically if needed):');
     container.appendChild(buildList(DEV_MODE_KEYS, 'cheat-list', apple2, canvas));
 }
