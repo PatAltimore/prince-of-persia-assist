@@ -352,7 +352,13 @@ canvas#screen {
     gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
-    padding: 0 0.75rem;
+    /* Right padding is deliberately larger than left: it's set so the
+       button's edge sits as far from the right edge as the joystick
+       ball's edge sits from the left edge (0.75rem container padding +
+       3px ring border + 34px centering inset within the 120px ring for
+       the 52px ball = 49px total), not just matching the ring's own
+       0.75rem inset. */
+    padding: 0 49px 0 0.75rem;
 }
 
 .touch-controls-row {
