@@ -34,7 +34,6 @@ async function main() {
     const rewindThumbnail = document.querySelector<HTMLImageElement>('#rewind-thumbnail')!;
     const hintsPane = document.querySelector<HTMLElement>('#hints-pane')!;
 
-    renderCheatCodes(document.querySelector('#tab-panel-cheats')!);
     renderHintsSidePane(document.querySelector('#tab-panel-code')!);
     attachTabs(hintsPane);
 
@@ -62,6 +61,7 @@ async function main() {
     });
     apple2Ref = apple2;
     roomMapHandle = renderRoomMap(document.querySelector('#tab-panel-map')!, apple2);
+    renderCheatCodes(document.querySelector('#tab-panel-cheats')!, apple2, canvas);
     touchControlsHandle = attachTouchControls(
         apple2.getIO(),
         canvas,
