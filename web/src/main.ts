@@ -67,8 +67,7 @@ async function main() {
         canvas,
         document.querySelector('#touch-joystick')!,
         document.querySelector('#touch-joystick-thumb')!,
-        document.querySelector('#touch-btn-0')!,
-        document.querySelector('#touch-btn-1')!
+        document.querySelector('#touch-btn-0')!
     );
 
     // Debug handles, mirroring apple2js's own convention (window.apple2).

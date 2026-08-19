@@ -2,6 +2,11 @@ import Apple2IO from 'js/apple2io';
 
 const BASE_RADIUS_PX = 60;
 
+// Below this fraction of the radius, treat the stick as centered rather
+// than snapping to a direction — otherwise the slightest touch jitter
+// right at the middle would flip between two opposite 8-way directions.
+const DEADZONE_RATIO = 0.3;
+
 export interface TouchControlsHandle {
     isEngaged: () => boolean;
 }
@@ -30,8 +35,7 @@ export function attachTouchControls(
     canvas: HTMLCanvasElement,
     joystickBase: HTMLElement,
     joystickThumb: HTMLElement,
-    button0: HTMLElement,
-    button1: HTMLElement
+    button0: HTMLElement
 ): TouchControlsHandle {
     let engaged = false;
 
@@ -120,36 +124,53 @@ export function attachTouchControls(
     window.addEventListener('pointerup', endJoystickPointer);
     window.addEventListener('pointercancel', endJoystickPointer);
 
+    // POP only ever reads the joystick as one of 8 discrete directions
+    // anyway (JSTKX/JSTKY end up -1/0/+1 — see CTRLSUBS.S's cvtpdl,
+    // comparing the raw reading against calibrated thresholds), so free
+    // analog positioning on a touchscreen only added jitter: a drag meant
+    // to be pure "up" that wobbled a couple degrees off-axis could read as
+    // up-left one frame and up-right the next, which is exactly what made
+    // precise combos (hold a direction to run, then jump for a running
+    // long jump) unreliable. Snapping to the nearest 45° and pinning the
+    // magnitude to the full radius removes that ambiguity — every
+    // direction now lands cleanly on one of the 8 states, same as a
+    // classic digital/microswitch joystick.
+    function snapToCompass(rawDx: number, rawDy: number): { dx: number; dy: number } {
+        const dist = Math.hypot(rawDx, rawDy);
+        if (dist < BASE_RADIUS_PX * DEADZONE_RATIO) {
+            return { dx: 0, dy: 0 };
+        }
+        const step = Math.PI / 4;
+        const angle = Math.round(Math.atan2(rawDy, rawDx) / step) * step;
+        return {
+            dx: Math.cos(angle) * BASE_RADIUS_PX,
+            dy: Math.sin(angle) * BASE_RADIUS_PX,
+        };
+    }
+
     function updateFromPointer(e: PointerEvent) {
         const rect = joystickBase.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
-        let dx = e.clientX - centerX;
-        let dy = e.clientY - centerY;
-        const dist = Math.hypot(dx, dy);
-        if (dist > BASE_RADIUS_PX) {
-            dx = (dx / dist) * BASE_RADIUS_PX;
-            dy = (dy / dist) * BASE_RADIUS_PX;
-        }
+        const { dx, dy } = snapToCompass(e.clientX - centerX, e.clientY - centerY);
         setThumb(dx, dy);
         setPaddlesFromOffset(dx, dy);
     }
 
-    function wireButton(el: HTMLElement, button: 0 | 1) {
+    function wireButton(el: HTMLElement) {
         const press = (e: PointerEvent) => {
             e.preventDefault();
             engageJoystickMode();
-            io.buttonDown(button);
+            io.buttonDown(0);
         };
-        const release = () => io.buttonDown(button, false);
+        const release = () => io.buttonDown(0, false);
         el.addEventListener('pointerdown', press);
         el.addEventListener('pointerup', release);
         el.addEventListener('pointercancel', release);
         el.addEventListener('pointerleave', release);
     }
 
-    wireButton(button0, 0);
-    wireButton(button1, 1);
+    wireButton(button0);
 
     return { isEngaged: () => engaged };
 }

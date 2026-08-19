@@ -352,6 +352,7 @@ canvas#screen {
     gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
+    padding: 0 0.75rem;
 }
 
 .touch-controls-row {
@@ -423,6 +424,10 @@ canvas#screen {
         0 4px 10px rgba(0, 0, 0, 0.55),
         inset 0 3px 5px rgba(255, 255, 255, 0.55),
         inset 0 -5px 8px rgba(0, 0, 0, 0.3);
+    /* Quick snap feel between the 8 discrete positions — short enough to
+       stay out of the way of a fast drag, long enough to read as a
+       deliberate "click" into place rather than a jump cut. */
+    transition: transform 0.08s ease-out;
     pointer-events: none;
 }
 
