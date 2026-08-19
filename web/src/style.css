@@ -668,8 +668,19 @@ dialog menu {
    keyboard legend uses on mouse/trackpad devices — swapped for it rather
    than overlaid on the playfield. Placed last in the stylesheet so it
    wins the cascade over the unconditional .key-legend/.touch-controls
-   base rules above regardless of source order within those rules. */
-@media (pointer: coarse) {
+   base rules above regardless of source order within those rules.
+   Deliberately `(pointer: coarse) and (not (any-pointer: fine))`, not
+   just `(pointer: coarse)`: `pointer` alone reflects only the *primary*
+   pointer's precision, and on a touchscreen-equipped Windows laptop/
+   desktop the OS commonly reports that as coarse even in an ordinary
+   mouse-and-keyboard session — full-screen, no finger anywhere near the
+   screen — which was showing the touch overlay and hiding the keyboard
+   legend on hardware that has (and is actively using) a real mouse.
+   `any-pointer: fine` checks every input mechanism, not just the primary
+   one, so it stays true on that same hybrid hardware (the mouse/trackpad
+   is still there) while correctly staying false on an actual phone or
+   tablet with no mouse at all — which is what should get the touch UI. */
+@media (pointer: coarse) and (not (any-pointer: fine)) {
     .key-legend {
         display: none;
     }
