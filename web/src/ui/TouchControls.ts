@@ -52,6 +52,17 @@ export function attachTouchControls(
     }
 
     let joystickPointerId: number | null = null;
+    // Wherever the finger actually lands becomes the logical center for
+    // this drag — not the ring's fixed geometric center. Tapping the base
+    // is rarely pixel-perfect on a real touchscreen, and measuring from
+    // the ring's visual center meant an off-center tap read as an
+    // immediate, unintended shove in whatever direction it happened to
+    // land — e.g. tapping slightly right of center moved the character
+    // right before any real swipe even started. Recording the touch-down
+    // point and measuring every subsequent move as a delta from *that*
+    // makes the joystick "float": the tap itself is always neutral
+    // (0,0 relative to itself), and only the actual drag motion counts.
+    let touchOrigin: { x: number; y: number } | null = null;
 
     // The thumb is already centered on the base via CSS (top/left: 50% +
     // negative margin — see .touch-joystick-thumb), so the offset here is
@@ -85,6 +96,7 @@ export function attachTouchControls(
     joystickBase.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         joystickPointerId = e.pointerId;
+        touchOrigin = { x: e.clientX, y: e.clientY };
         joystickBase.classList.add('touch-joystick-pressed');
         try {
             joystickBase.setPointerCapture(e.pointerId);
@@ -93,26 +105,22 @@ export function attachTouchControls(
             // slides outside the base); engagement and paddle updates
             // below must not depend on it succeeding.
         }
-        const wasAlreadyEngaged = engaged;
         engageJoystickMode();
-        if (wasAlreadyEngaged) {
-            updateFromPointer(e);
-        }
-        // On the very first engagement, deliberately leave the paddle at
-        // its neutral center instead of immediately applying this touch's
-        // position. The Ctrl+J we just dispatched only *queues* a
-        // keypress — the game's SETCENTER calibration (GRAFIX.S) doesn't
-        // actually run until a later emulator tick polls the keyboard,
-        // and it calibrates its "center" thresholds around whatever
-        // paddle reading is live *at that moment*. Setting the paddle to
-        // this touch's position right now would race ahead of that and
-        // get baked in as the calibrated center — most visibly, a first
-        // touch landing anywhere near full-right would make SETCENTER
-        // treat "full right" as center, so pushing right could never
-        // register again. Leaving the paddle untouched here means
-        // calibration always happens against true center; the first
-        // pointermove (which necessarily comes later, after the game has
-        // had time to process the keypress) is what starts driving it.
+        // Deliberately not calling updateFromPointer here: with the
+        // floating origin above, the delta at the instant of touch-down
+        // is always (0, 0) by construction (the touch point *is* the
+        // origin), so there'd be nothing to apply yet regardless. That
+        // also happens to sidestep a real calibration race on the very
+        // first-ever engagement: the Ctrl+J just dispatched only *queues*
+        // a keypress — the game's SETCENTER calibration (GRAFIX.S)
+        // doesn't actually run until a later emulator tick polls the
+        // keyboard, and it calibrates its "center" thresholds around
+        // whatever paddle reading is live *at that moment*. Applying a
+        // nonzero paddle value here would race ahead of that and get
+        // baked in as the calibrated center, breaking whichever direction
+        // happened to be live. The first pointermove (which necessarily
+        // comes later, after the game has had time to process the
+        // keypress) is what starts actually driving the paddle.
     });
 
     // Deliberately bound on window, not joystickBase: a real drag routinely
@@ -136,6 +144,7 @@ export function attachTouchControls(
             return;
         }
         joystickPointerId = null;
+        touchOrigin = null;
         resetJoystick();
     }
 
@@ -167,10 +176,10 @@ export function attachTouchControls(
     }
 
     function updateFromPointer(e: PointerEvent) {
-        const rect = joystickBase.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const { dx, dy } = snapToCompass(e.clientX - centerX, e.clientY - centerY);
+        if (!touchOrigin) {
+            return;
+        }
+        const { dx, dy } = snapToCompass(e.clientX - touchOrigin.x, e.clientY - touchOrigin.y);
         setThumb(dx, dy);
         setPaddlesFromOffset(dx, dy);
     }
