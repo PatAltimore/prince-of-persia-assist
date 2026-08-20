@@ -36,7 +36,7 @@ interface ActionLogRow {
     label: HTMLElement;
 }
 
-function buildActionLogRow(filenames: string[]): ActionLogRow {
+function buildActionLogRow(filenames: string[], wireLink: (link: HTMLAnchorElement) => void): ActionLogRow {
     const item = document.createElement('li');
 
     const time = document.createElement('span');
@@ -56,6 +56,7 @@ function buildActionLogRow(filenames: string[]): ActionLogRow {
         link.target = '_blank';
         link.rel = 'noopener';
         link.textContent = filename;
+        wireLink(link);
         links.appendChild(link);
     });
 
@@ -85,7 +86,8 @@ function buildActionLogRow(filenames: string[]): ActionLogRow {
 function renderActionLogSection(
     listEl: HTMLElement,
     emptyEl: HTMLElement,
-    rowsByCategory: Map<string, ActionLogRow>
+    rowsByCategory: Map<string, ActionLogRow>,
+    wireLink: (link: HTMLAnchorElement) => void
 ): void {
     const actions = getRecentActions(); // newest-updated first
     // Not just `emptyEl.hidden = ...`: .hints-desc's own `display: block`
@@ -101,7 +103,7 @@ function renderActionLogSection(
         seenCategories.add(entry.category);
         let row = rowsByCategory.get(entry.category);
         if (!row) {
-            row = buildActionLogRow(entry.filenames);
+            row = buildActionLogRow(entry.filenames, wireLink);
             rowsByCategory.set(entry.category, row);
         }
         row.time.textContent = formatRelativeTime(entry.timestamp);
@@ -141,6 +143,34 @@ function renderActionLogSection(
 export function renderHintsSidePane(container: HTMLElement): { update: (apple2: Apple2) => void } {
     container.innerHTML = '';
 
+    // Populated by the first update() call (see below) — clicking a Code
+    // Museum link before the emulator has booted can't happen (nothing's
+    // rendered yet), so this is always set by the time a click needs it.
+    let apple2Ref: Apple2 | undefined;
+    let pausedForCodeMuseum = false;
+
+    /**
+     * Pauses the emulator when a Code Museum link is opened — reading an
+     * article isn't a great time for the prince to keep wandering into a
+     * spike pit unsupervised — and resumes it automatically once the
+     * player switches back to this tab. Only auto-resumes if *this*
+     * function did the pausing (`pausedForCodeMuseum`), so it doesn't
+     * fight with some other reason the game might be stopped.
+     */
+    function wireCodeMuseumLink(link: HTMLAnchorElement): void {
+        link.addEventListener('click', () => {
+            apple2Ref?.stop();
+            pausedForCodeMuseum = true;
+        });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && pausedForCodeMuseum) {
+            pausedForCodeMuseum = false;
+            apple2Ref?.run();
+        }
+    });
+
     const heading = document.createElement('h2');
     heading.textContent = 'Source & hints';
     container.appendChild(heading);
@@ -160,10 +190,40 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     container.appendChild(actionLogList);
 
     const actionLogRows = new Map<string, ActionLogRow>();
-    renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows);
-    onActionLogged(() => renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows));
+
+    // Belt-and-suspenders on top of the de-duplication (ActionLog.ts) and
+    // the KidScrn read-instability debounce (below): entirely skip
+    // touching this list's DOM while the pointer is over it, queuing a
+    // single catch-up render for when the pointer leaves instead. No
+    // matter what other layer of defense turns out to be imperfect, a
+    // click physically cannot be interrupted by a re-render if no
+    // re-render is allowed to happen while the pointer is there at all.
+    let renderSuppressed = false;
+    let renderPending = false;
+
+    function requestActionLogRender(): void {
+        if (renderSuppressed) {
+            renderPending = true;
+            return;
+        }
+        renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows, wireCodeMuseumLink);
+    }
+
+    actionLogList.addEventListener('pointerenter', () => {
+        renderSuppressed = true;
+    });
+    actionLogList.addEventListener('pointerleave', () => {
+        renderSuppressed = false;
+        if (renderPending) {
+            renderPending = false;
+            requestActionLogRender();
+        }
+    });
+
+    requestActionLogRender();
+    onActionLogged(requestActionLogRender);
     // Keeps "12s ago" from going stale even when nothing new gets logged.
-    setInterval(() => renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows), 10000);
+    setInterval(requestActionLogRender, 10000);
 
     const rootLink = document.createElement('a');
     rootLink.href = CODE_MUSEUM_ROOT_URL;
@@ -171,6 +231,7 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     rootLink.rel = 'noopener';
     rootLink.className = 'hints-root-link';
     rootLink.textContent = 'Browse all articles on Code Museum ↗';
+    wireCodeMuseumLink(rootLink);
     container.appendChild(rootLink);
 
     const list = document.createElement('ul');
@@ -184,6 +245,7 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
         link.target = '_blank';
         link.rel = 'noopener';
         link.textContent = entry.filename;
+        wireCodeMuseumLink(link);
 
         const desc = document.createElement('span');
         desc.className = 'hints-desc';
@@ -222,6 +284,7 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     let pendingScreenTicks = 0;
 
     function update(apple2: Apple2): void {
+        apple2Ref = apple2;
         const cpu = apple2.getCPU();
         const level = readAuxRam(apple2)?.[LEVEL_ADDRESS];
         const screen = cpu.read(KIDSCRN_ADDRESS);
