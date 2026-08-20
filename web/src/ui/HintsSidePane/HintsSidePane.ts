@@ -30,9 +30,64 @@ function formatRelativeTime(timestamp: number): string {
     return `${minutes}m ago`;
 }
 
-function renderActionLogSection(listEl: HTMLElement, emptyEl: HTMLElement): void {
-    const actions = getRecentActions(); // already newest-updated first
-    listEl.innerHTML = '';
+interface ActionLogRow {
+    item: HTMLLIElement;
+    time: HTMLElement;
+    label: HTMLElement;
+}
+
+function buildActionLogRow(filenames: string[]): ActionLogRow {
+    const item = document.createElement('li');
+
+    const time = document.createElement('span');
+    time.className = 'action-log-time';
+
+    const label = document.createElement('span');
+    label.className = 'action-log-label';
+
+    const links = document.createElement('span');
+    links.className = 'action-log-links';
+    filenames.forEach((filename, i) => {
+        if (i > 0) {
+            links.appendChild(document.createTextNode(' '));
+        }
+        const link = document.createElement('a');
+        link.href = codeMuseumUrlForFile(filename);
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = filename;
+        links.appendChild(link);
+    });
+
+    item.appendChild(time);
+    item.appendChild(label);
+    item.appendChild(links);
+    return { item, time, label };
+}
+
+/**
+ * Updates in place (never `innerHTML = ''` + rebuild): this section
+ * re-renders on every `logAction` call anywhere, which in practice means
+ * many times a second while the player is actively moving between rooms.
+ * A full rebuild would tear out and recreate every entry's DOM on each of
+ * those — including whichever link the player currently has the mouse
+ * over — which is exactly what made links impossible to click (the
+ * element mousedown landed on no longer existed by the time mouseup
+ * fired) and made hover underlines flicker (the browser's hover state
+ * resets every time an element is torn down and a fresh one appears in
+ * its place). Reusing one `<li>` per category (see ActionLog.ts's keying)
+ * and only touching its text content — plus reordering via `appendChild`
+ * on an *already-attached* node, which the DOM spec defines as a move,
+ * not a remove+insert — means a link's element identity survives for as
+ * long as its category keeps existing, so hovering or clicking it is
+ * never interrupted by unrelated categories updating.
+ */
+function renderActionLogSection(
+    listEl: HTMLElement,
+    emptyEl: HTMLElement,
+    rowsByCategory: Map<string, ActionLogRow>
+): void {
+    const actions = getRecentActions(); // newest-updated first
     // Not just `emptyEl.hidden = ...`: .hints-desc's own `display: block`
     // (an author-stylesheet rule) outranks the `[hidden]` attribute's
     // `display: none` (a lower-priority default UA-stylesheet rule), so
@@ -40,35 +95,29 @@ function renderActionLogSection(listEl: HTMLElement, emptyEl: HTMLElement): void
     // the empty-state message stayed visible even with entries present.
     emptyEl.style.display = actions.length > 0 ? 'none' : '';
 
+    const seenCategories = new Set<string>();
+
     for (const entry of actions) {
-        const item = document.createElement('li');
+        seenCategories.add(entry.category);
+        let row = rowsByCategory.get(entry.category);
+        if (!row) {
+            row = buildActionLogRow(entry.filenames);
+            rowsByCategory.set(entry.category, row);
+        }
+        row.time.textContent = formatRelativeTime(entry.timestamp);
+        row.label.textContent = entry.label;
+        // Appending an element already in the document just relocates it
+        // (per the DOM spec's "pre-insert" steps) — iterating newest-first
+        // and appending each in turn builds that exact order without ever
+        // detaching+recreating a node that didn't need to move.
+        listEl.appendChild(row.item);
+    }
 
-        const time = document.createElement('span');
-        time.className = 'action-log-time';
-        time.textContent = formatRelativeTime(entry.timestamp);
-
-        const label = document.createElement('span');
-        label.className = 'action-log-label';
-        label.textContent = entry.label;
-
-        const links = document.createElement('span');
-        links.className = 'action-log-links';
-        entry.filenames.forEach((filename, i) => {
-            if (i > 0) {
-                links.appendChild(document.createTextNode(' '));
-            }
-            const link = document.createElement('a');
-            link.href = codeMuseumUrlForFile(filename);
-            link.target = '_blank';
-            link.rel = 'noopener';
-            link.textContent = filename;
-            links.appendChild(link);
-        });
-
-        item.appendChild(time);
-        item.appendChild(label);
-        item.appendChild(links);
-        listEl.appendChild(item);
+    for (const [category, row] of rowsByCategory) {
+        if (!seenCategories.has(category)) {
+            row.item.remove();
+            rowsByCategory.delete(category);
+        }
     }
 }
 
@@ -110,10 +159,11 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     actionLogList.className = 'action-log-list';
     container.appendChild(actionLogList);
 
-    renderActionLogSection(actionLogList, actionLogEmpty);
-    onActionLogged(() => renderActionLogSection(actionLogList, actionLogEmpty));
+    const actionLogRows = new Map<string, ActionLogRow>();
+    renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows);
+    onActionLogged(() => renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows));
     // Keeps "12s ago" from going stale even when nothing new gets logged.
-    setInterval(() => renderActionLogSection(actionLogList, actionLogEmpty), 10000);
+    setInterval(() => renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows), 10000);
 
     const rootLink = document.createElement('a');
     rootLink.href = CODE_MUSEUM_ROOT_URL;
