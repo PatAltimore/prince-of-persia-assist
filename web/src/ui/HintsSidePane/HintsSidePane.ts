@@ -200,6 +200,27 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     let lastScreen: number | null = null;
     let lastDevelment: number | null = null;
 
+    // A room change only gets logged once the *new* KidScrn reading has
+    // held for this many consecutive ticks. Measured live: sampling
+    // KidScrn 60 times over ~2 seconds while the character wasn't moving
+    // between rooms at all showed it flipping between two values 46 times
+    // — real read instability, not RoomMap's already-solved RAMRD/aux-bank
+    // hazard (KidScrn is zero-page, unaffected by that; level, read the
+    // aux-bank-safe way, stayed rock solid in the same test). Logging on
+    // every single-tick change meant `logAction('room', ...)` was firing
+    // dozens of times a second, which is what was still visibly
+    // flickering the text/links even after the DOM-reconciliation fix (a
+    // separate, real bug) stopped it from destroying the elements.
+    // Unlike RoomMap's own current-room *display* — which must react
+    // immediately, since delaying it would make the map feel laggy while
+    // actually walking — this is only deciding when to log a discrete
+    // event, so a short, human-imperceptible debounce is safe here in a
+    // way it explicitly wasn't for RoomMap (see that file's history on
+    // why a stability gate broke when misapplied to KidScrn there).
+    const ROOM_STABILITY_TICKS = 10;
+    let pendingScreen: number | null = null;
+    let pendingScreenTicks = 0;
+
     function update(apple2: Apple2): void {
         const cpu = apple2.getCPU();
         const level = readAuxRam(apple2)?.[LEVEL_ADDRESS];
@@ -216,17 +237,26 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
             lastLevel = level;
         }
 
-        // Each category is a single de-duplicated slot (see ActionLog.ts),
-        // so a screen that keeps changing — e.g. POP's own attract-mode
-        // demo (AUTO.S) auto-cycling through several rooms while idling
-        // at the title screen, since it drives these same `level`/KidScrn
-        // variables — just keeps refreshing the one "Entered a new room"
-        // entry's timestamp instead of piling up duplicate lines.
         if (lastLevel !== null && lastLevel > 0) {
-            if (lastScreen !== null && lastScreen !== screen) {
-                logAction('room', 'Entered a new room', ['GAMEBG.S', 'BGDATA.S', 'HIRES.S']);
+            if (screen === lastScreen) {
+                pendingScreen = null;
+                pendingScreenTicks = 0;
+            } else if (screen === pendingScreen) {
+                pendingScreenTicks++;
+                if (pendingScreenTicks >= ROOM_STABILITY_TICKS) {
+                    // Each category is a single de-duplicated slot (see
+                    // ActionLog.ts), so even once accepted, further real
+                    // room changes just refresh this one entry's
+                    // timestamp instead of piling up duplicate lines.
+                    logAction('room', 'Entered a new room', ['GAMEBG.S', 'BGDATA.S', 'HIRES.S']);
+                    lastScreen = screen;
+                    pendingScreen = null;
+                    pendingScreenTicks = 0;
+                }
+            } else {
+                pendingScreen = screen;
+                pendingScreenTicks = 1;
             }
-            lastScreen = screen;
         }
 
         if (lastDevelment !== null && lastDevelment === 0 && develment !== 0) {
