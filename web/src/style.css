@@ -331,6 +331,52 @@ canvas#screen {
     margin-top: 0.1rem;
 }
 
+.action-log-empty {
+    margin: 0 0 0.75rem;
+    font-style: italic;
+}
+
+.action-log-list {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+}
+
+.action-log-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-bottom: 0.45rem;
+    font-size: 0.8rem;
+}
+
+.action-log-time {
+    flex-shrink: 0;
+    min-width: 3.4em;
+    color: #777;
+    font-size: 0.7rem;
+}
+
+.action-log-label {
+    color: #ddd;
+}
+
+.action-log-links {
+    display: inline-flex;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+}
+
+.action-log-links a {
+    color: #6cf;
+    text-decoration: none;
+}
+
+.action-log-links a:hover {
+    text-decoration: underline;
+}
+
 .rewind-thumbnail {
     position: absolute;
     bottom: 8px;

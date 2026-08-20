@@ -1,4 +1,5 @@
 import Apple2IO from 'js/apple2io';
+import { logAction } from '../emulator/ActionLog';
 
 const BASE_RADIUS_PX = 60;
 
@@ -189,6 +190,7 @@ export function attachTouchControls(
             e.preventDefault();
             engageJoystickMode();
             io.buttonDown(0);
+            logAction('Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
         };
         const release = () => io.buttonDown(0, false);
         el.addEventListener('pointerdown', press);

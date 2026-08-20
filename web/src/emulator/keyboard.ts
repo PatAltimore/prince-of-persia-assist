@@ -1,5 +1,6 @@
 import { mapKeyboardEvent } from 'js/components/util/keyboard';
 import { Apple2 } from 'js/apple2';
+import { logAction } from './ActionLog';
 
 /**
  * Some Android/Fire-OS browsers (confirmed report: Kindle Fire's Silk
@@ -49,12 +50,11 @@ export function attachKeyboard(apple2: Apple2, target: HTMLElement): () => void 
         }
 
         const io = apple2.getIO();
-        if (key === 'OPEN_APPLE') {
-            io.buttonDown(0, true);
-            return;
-        }
-        if (key === 'CLOSED_APPLE') {
-            io.buttonDown(1, true);
+        if (key === 'OPEN_APPLE' || key === 'CLOSED_APPLE') {
+            io.buttonDown(key === 'OPEN_APPLE' ? 0 : 1, true);
+            if (!event.repeat) {
+                logAction('Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
+            }
             return;
         }
 

@@ -1,4 +1,5 @@
 import { Apple2 } from 'js/apple2';
+import { logAction } from '../../emulator/ActionLog';
 
 /**
  * How to actually invoke a cheat programmatically (tapping it), as opposed
@@ -173,7 +174,9 @@ function ensurePopActive(apple2: Apple2): Promise<void> {
 }
 
 async function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, cheat: CheatCode): Promise<void> {
+    let autoEnabledPop = false;
     if (cheat.requiresPop) {
+        autoEnabledPop = apple2.getCPU().read(DEVELMENT_ADDRESS) === 0;
         await ensurePopActive(apple2);
     }
     const { action } = cheat;
@@ -183,6 +186,7 @@ async function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, cheat: Che
         dispatchKeyAction(canvas, action);
     }
     canvas.focus();
+    logAction(`Sent cheat "${cheat.keys}"${autoEnabledPop ? ' (auto-enabled POP first)' : ''}`, ['SPECIALK.S']);
 }
 
 function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas: HTMLCanvasElement): HTMLUListElement {

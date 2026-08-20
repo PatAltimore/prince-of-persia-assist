@@ -35,7 +35,7 @@ async function main() {
     const rewindThumbnail = document.querySelector<HTMLImageElement>('#rewind-thumbnail')!;
     const hintsPane = document.querySelector<HTMLElement>('#hints-pane')!;
 
-    renderHintsSidePane(document.querySelector('#tab-panel-code')!);
+    const hintsSidePaneHandle = renderHintsSidePane(document.querySelector('#tab-panel-code')!);
     attachTabs(hintsPane);
     attachControlModeSwitch();
 
@@ -60,6 +60,7 @@ async function main() {
         scrubberHandle?.syncRange();
         roomMapHandle?.update();
         diskSwapHandle?.onTick();
+        hintsSidePaneHandle.update(apple2);
     });
     apple2Ref = apple2;
     roomMapHandle = renderRoomMap(document.querySelector('#tab-panel-map')!, apple2);
