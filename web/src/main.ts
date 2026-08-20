@@ -12,6 +12,7 @@ import { captureThumbnail } from './emulator/snapshot/thumbnail';
 import { attachRewindScrubber, attachRewindButton } from './ui/RewindScrubber';
 import { attachSaveLoadMenu } from './ui/SaveMenu';
 import { attachTouchControls } from './ui/TouchControls';
+import { attachControlModeSwitch } from './ui/ControlModeSwitch';
 
 const DISK_A_URL = '/disks/PrinceOfPersia_5.25_SideA.nib';
 const DISK_B_URL = '/disks/PrinceOfPersia_5.25_SideB.nib';
@@ -36,6 +37,7 @@ async function main() {
 
     renderHintsSidePane(document.querySelector('#tab-panel-code')!);
     attachTabs(hintsPane);
+    attachControlModeSwitch();
 
     const rewindBuffer = new RewindBuffer(REWIND_CAPACITY);
     let apple2Ref: Apple2 | undefined;

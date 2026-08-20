@@ -689,3 +689,45 @@ dialog menu {
         display: flex;
     }
 }
+
+.control-mode-switch {
+    align-self: center;
+    margin-top: 0.25rem;
+    padding: 0.3rem 0.6rem;
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #6cf;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.control-mode-switch:hover {
+    background: rgba(108, 204, 255, 0.08);
+}
+
+/* Manual override for when auto-detection (the pointer/any-pointer media
+   query above) guesses wrong — e.g. a touchscreen-equipped desktop that
+   still wants the keyboard legend despite (pointer: coarse), or a Kindle
+   Fire whose Fire OS build reportedly changes what it reports for
+   pointer capability between portrait and landscape (with a detachable
+   keyboard case), leaving it stuck showing the keyboard legend on a
+   touch-only device in portrait. Toggled by the two
+   .control-mode-switch buttons (see ControlModeSwitch.ts); body-scoped
+   classes so their specificity beats the plain .key-legend/.touch-controls
+   rules above regardless of source order or which media query matched. */
+body.force-touch-controls .key-legend {
+    display: none;
+}
+
+body.force-touch-controls .touch-controls {
+    display: flex;
+}
+
+body.force-keyboard-controls .key-legend {
+    display: flex;
+}
+
+body.force-keyboard-controls .touch-controls {
+    display: none;
+}
