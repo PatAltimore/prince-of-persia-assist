@@ -53,7 +53,7 @@ export function attachKeyboard(apple2: Apple2, target: HTMLElement): () => void 
         if (key === 'OPEN_APPLE' || key === 'CLOSED_APPLE') {
             io.buttonDown(key === 'OPEN_APPLE' ? 0 : 1, true);
             if (!event.repeat) {
-                logAction('Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
+                logAction('fight', 'Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
             }
             return;
         }

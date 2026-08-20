@@ -31,7 +31,7 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 function renderActionLogSection(listEl: HTMLElement, emptyEl: HTMLElement): void {
-    const actions = getRecentActions().reverse(); // newest first
+    const actions = getRecentActions(); // already newest-updated first
     listEl.innerHTML = '';
     // Not just `emptyEl.hidden = ...`: .hints-desc's own `display: block`
     // (an author-stylesheet rule) outranks the `[hidden]` attribute's
@@ -149,49 +149,38 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
     let lastLevel: number | null = null;
     let lastScreen: number | null = null;
     let lastDevelment: number | null = null;
-    let lastLevelLogTime = 0;
-    let lastRoomLogTime = 0;
-    // POP's own attract-mode demo (AUTO.S) auto-plays a scripted run
-    // through real gameplay using these same `level`/KidScrn variables —
-    // confirmed live: sitting at the title screen produced a burst of
-    // "Entered a new room" entries in rapid succession, one per demo
-    // screen transition, because the simple `level > 0` sanity bound
-    // below can't tell a scripted demo apart from a real player (the same
-    // ambiguity RoomMap's own UI already documents as a known caveat
-    // rather than fully solving — see its "not the title/attract screen"
-    // copy). Rather than chase a perfect detector, a short cooldown just
-    // caps how often either event can log, coalescing a burst into one
-    // entry regardless of what's actually causing it.
-    const LOG_COOLDOWN_MS = 4000;
 
     function update(apple2: Apple2): void {
         const cpu = apple2.getCPU();
         const level = readAuxRam(apple2)?.[LEVEL_ADDRESS];
         const screen = cpu.read(KIDSCRN_ADDRESS);
         const develment = cpu.read(DEVELMENT_ADDRESS);
-        const now = Date.now();
 
         // Sanity-bound like RoomMap's own level gate: transient/garbage
         // reads (e.g. during the title/attract screen) show up as 0 or
         // 255, not a real level number.
         if (level !== undefined && level > 0 && level < 15) {
-            if (lastLevel !== null && lastLevel !== level && now - lastLevelLogTime > LOG_COOLDOWN_MS) {
-                logAction(`Reached Level ${level}`, ['MASTER.S', 'TOPCTRL.S']);
-                lastLevelLogTime = now;
+            if (lastLevel !== null && lastLevel !== level) {
+                logAction('level', `Reached Level ${level}`, ['MASTER.S', 'TOPCTRL.S']);
             }
             lastLevel = level;
         }
 
+        // Each category is a single de-duplicated slot (see ActionLog.ts),
+        // so a screen that keeps changing — e.g. POP's own attract-mode
+        // demo (AUTO.S) auto-cycling through several rooms while idling
+        // at the title screen, since it drives these same `level`/KidScrn
+        // variables — just keeps refreshing the one "Entered a new room"
+        // entry's timestamp instead of piling up duplicate lines.
         if (lastLevel !== null && lastLevel > 0) {
-            if (lastScreen !== null && lastScreen !== screen && now - lastRoomLogTime > LOG_COOLDOWN_MS) {
-                logAction('Entered a new room', ['GAMEBG.S', 'BGDATA.S', 'HIRES.S']);
-                lastRoomLogTime = now;
+            if (lastScreen !== null && lastScreen !== screen) {
+                logAction('room', 'Entered a new room', ['GAMEBG.S', 'BGDATA.S', 'HIRES.S']);
             }
             lastScreen = screen;
         }
 
         if (lastDevelment !== null && lastDevelment === 0 && develment !== 0) {
-            logAction('Enabled dev mode (POP)', ['SPECIALK.S']);
+            logAction('devmode', 'Enabled dev mode (POP)', ['SPECIALK.S']);
         }
         lastDevelment = develment;
     }

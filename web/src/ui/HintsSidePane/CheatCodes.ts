@@ -186,7 +186,11 @@ async function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, cheat: Che
         dispatchKeyAction(canvas, action);
     }
     canvas.focus();
-    logAction(`Sent cheat "${cheat.keys}"${autoEnabledPop ? ' (auto-enabled POP first)' : ''}`, ['SPECIALK.S']);
+    logAction(
+        `cheat:${cheat.keys}`,
+        `Sent cheat "${cheat.keys}"${autoEnabledPop ? ' (auto-enabled POP first)' : ''}`,
+        ['SPECIALK.S']
+    );
 }
 
 function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas: HTMLCanvasElement): HTMLUListElement {

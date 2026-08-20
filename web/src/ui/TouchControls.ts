@@ -190,7 +190,7 @@ export function attachTouchControls(
             e.preventDefault();
             engageJoystickMode();
             io.buttonDown(0);
-            logAction('Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
+            logAction('fight', 'Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
         };
         const release = () => io.buttonDown(0, false);
         el.addEventListener('pointerdown', press);
