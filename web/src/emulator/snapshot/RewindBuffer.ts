@@ -22,24 +22,67 @@ export interface RewindEntry {
  * thumbnail (a few KB, negligible next to the ~451KB snapshot itself) so
  * the scrubber UI can preview a position before committing to it.
  */
+// This is the one class-based module in the app (most of the rest of the
+// codebase uses the closure-based "handle" pattern instead — see main.ts's
+// top-of-file note for that alternative). A `class` bundles state
+// (`entries`) and the functions that operate on it (`push`, `at`, etc.,
+// called "methods") into one named, reusable blueprint — reach for one
+// when you want multiple independent instances of the same behavior, each
+// with its own private state, which is exactly the case here: main.ts
+// creates exactly one `RewindBuffer`, but nothing here prevents making a
+// second, fully independent one for a different purpose.
 export class RewindBuffer {
+    // `private` restricts this field to code inside this class — even
+    // code elsewhere in this same file can't reach `someBuffer.entries`
+    // directly, only through the methods below. It's the class-based
+    // equivalent of the privacy a closure gives a plain function's local
+    // variables.
     private entries: RewindEntry[] = [];
 
+    // `constructor(private readonly capacity: number) {}` is TypeScript
+    // shorthand: writing `private`/`readonly` directly on a constructor
+    // parameter both declares a class field of that name *and* assigns
+    // the passed-in argument to it, in one line — equivalent to writing
+    // `private readonly capacity: number; constructor(capacity: number) {
+    // this.capacity = capacity; }` the long way. `readonly` means it can
+    // only ever be set once (right here, at construction), never
+    // reassigned later.
     constructor(private readonly capacity: number) {}
 
     push(state: State, thumbnail: string, timestamp: number = Date.now()): void {
         this.entries.push({ timestamp, state, thumbnail });
+        // This is what makes it a *ring buffer* (a.k.a. circular buffer):
+        // a fixed maximum size where adding one more item past that size
+        // discards the oldest one instead of growing forever.
+        // `Array.shift()` removes and returns the *first* element — the
+        // oldest entry, since new ones are always `.push()`ed onto the
+        // end — which is a bit more expensive than removing from the end
+        // (every remaining element has to shift down one index) but is
+        // the right end to remove from here, and this only runs once
+        // every `intervalMs` (5 seconds), so the cost is irrelevant.
         if (this.entries.length > this.capacity) {
             this.entries.shift();
         }
     }
 
+    // A `get` method ("getter") is called like a plain property —
+    // `buffer.length`, no parentheses — while still running code each
+    // time it's read. Useful here so callers can treat `.length` like any
+    // other property without knowing (or caring) that it's actually
+    // computed from the private `entries` array underneath.
     get length(): number {
         return this.entries.length;
     }
 
     /** Snapshot at `index`, 0 = oldest, length-1 = newest. */
     at(index: number): State | undefined {
+        // `this.entries[index]` is `undefined` if `index` is out of
+        // range (JS array indexing never throws, it just gives you
+        // `undefined`) — `?.state` ("optional chaining") means "read
+        // `.state` only if the thing on the left isn't null/undefined,
+        // otherwise short-circuit to `undefined` instead of throwing a
+        // TypeError." Without it, an out-of-range `index` would crash on
+        // `undefined.state`.
         return this.entries[index]?.state;
     }
 
@@ -64,7 +107,20 @@ export class RewindBuffer {
         if (this.entries.length === 0) {
             return undefined;
         }
+        // `this.newestTimestamp!` — the `!` asserts "I know this isn't
+        // undefined," which is safe here specifically because of the
+        // `length === 0` check just above: `newestTimestamp` is only
+        // undefined when the buffer is empty, and this line is
+        // unreachable in that case. TypeScript's own analysis can't
+        // always follow that kind of reasoning across a getter call, so
+        // the assertion tells it to trust the surrounding logic instead.
         const target = this.newestTimestamp! - secondsAgo * 1000;
+        // Walking backward from the newest entry (rather than forward
+        // from the oldest) means this finds the answer in the fewest
+        // steps for the common case — rewinding a few seconds — since
+        // that target is close to the end of the array; it only has to
+        // walk the full array in the rare case of rewinding almost the
+        // entire buffer.
         for (let i = this.entries.length - 1; i >= 0; i--) {
             if (this.entries[i].timestamp <= target) {
                 return i;
@@ -116,11 +172,33 @@ export class RewindBuffer {
  * frame (and the next rAF scheduling) complete first; the snapshot lands
  * a macrotask later, a few ms of skew that's irrelevant at 5-second
  * granularity.
+ *
+ * LEARNING NOTE — what "macrotask" means: the browser's JS engine runs
+ * one thing at a time on a single thread, working through a queue of
+ * discrete units of work. `setTimeout(fn, 0)` doesn't run `fn`
+ * *immediately* — it puts `fn` at the back of that queue (a "macrotask"),
+ * to run only once everything already queued or currently executing
+ * finishes, even though the requested delay is zero. That's exactly what
+ * this code wants: "run this, but only after the current frame's already
+ * synchronous work — including the code that schedules the *next*
+ * frame — has had a chance to finish first," rather than "run this right
+ * this instant, blocking whatever's already in progress."
  */
 export class RewindRecorder {
     private lastSnapshotAt = 0;
+    // Tracks whether a deferred capture (the setTimeout below) is still
+    // waiting to run. Needed because `onTick` fires every frame — without
+    // this flag, if a capture somehow took longer than one frame, the
+    // *next* tick could see enough time has passed and schedule a second
+    // overlapping capture before the first has even landed.
     private capturePending = false;
 
+    // `captureFn`/`thumbnailFn` are functions *passed in* by main.ts
+    // rather than this class importing `captureSnapshot`/`captureThumbnail`
+    // and calling them directly — a small example of "dependency
+    // injection": this class knows it needs *some* way to capture a
+    // snapshot and a thumbnail, but not the concrete details of how,
+    // which keeps it decoupled from those other modules.
     constructor(
         private readonly buffer: RewindBuffer,
         private readonly intervalMs: number,

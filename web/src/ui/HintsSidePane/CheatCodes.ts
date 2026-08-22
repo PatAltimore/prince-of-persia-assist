@@ -24,6 +24,16 @@ import { logAction } from '../../emulator/ActionLog';
  *    `event.key`, so dispatching the already-uppercase letter directly
  *    (no separate Shift press) is enough.
  */
+// LEARNING NOTE — `CheatAction` is a "discriminated union": a value that
+// can be one of several different object shapes, each tagged with a
+// literal `type` field that says which one it actually is. Whenever code
+// checks `action.type === 'sequence'` (see dispatchKeyAction/invokeCheat
+// below), TypeScript uses that check to *narrow* the type within that
+// branch — inside an `if (action.type === 'sequence')` block, TypeScript
+// knows `action` must have a `.text` property (only the 'sequence'
+// variant has one), while inside the `else`, it knows `action` has `.key`/
+// `.ctrl` instead. This is a very common TypeScript pattern for "one of a
+// few different kinds of thing, each needing different data."
 type CheatAction = { type: 'sequence'; text: string } | { type: 'key'; key: string; ctrl?: boolean };
 
 interface CheatCode {
@@ -39,9 +49,19 @@ interface CheatCode {
      * (see invokeCheat) — same real code path as the master switch, just
      * done for you.
      */
+    // The `?` in `requiresPop?: boolean` marks this property optional —
+    // an object can satisfy the `CheatCode` interface whether it includes
+    // `requiresPop` or not, and where it's omitted (see ALWAYS_ACTIVE
+    // below), reading it back gives `undefined`, which is falsy wherever
+    // this codebase checks `if (cheat.requiresPop)`.
     requiresPop?: boolean;
 }
 
+// `key`/`sequence` are small "factory functions" — they exist purely to
+// make the big cheat-list tables below (ALWAYS_ACTIVE, SECRET_CODES,
+// DEV_MODE_KEYS) more readable, writing `action: key('r', true)` instead
+// of spelling out `action: { type: 'key', key: 'r', ctrl: true }` inline
+// at every one of the dozens of entries.
 function key(k: string, ctrl = false): CheatAction {
     return { type: 'key', key: k, ctrl };
 }
@@ -139,10 +159,26 @@ function dispatchKeyAction(canvas: HTMLCanvasElement, action: { type: 'key'; key
  * `sequence` case's doc comment above — so "POP" typically takes a few
  * frames, not one tick, to fully register.
  */
+// LEARNING NOTE — `new Promise((resolve) => { ... })` is how you wrap an
+// old-style, callback-based or polling operation so the rest of the code
+// can `await` it like any other async function. The function passed to
+// `new Promise` runs immediately; calling `resolve()` from anywhere inside
+// it (here, from deep within a chain of `setTimeout` calls) is what makes
+// the Promise settle, letting whoever's `await`ing it continue. This
+// function never calls `reject` — a genuinely timed-out wait still counts
+// as "done" here (see the `deadline` check), it just means the cheat
+// after it may not work correctly, rather than being a hard error worth
+// throwing over.
 function waitForDevelMode(apple2: Apple2, timeoutMs = 1500): Promise<void> {
     return new Promise((resolve) => {
         const cpu = apple2.getCPU();
         const deadline = Date.now() + timeoutMs;
+        // `poll` calls itself again via `setTimeout` rather than using a
+        // loop (like `while`) — a real loop would spin as fast as
+        // possible, pegging the CPU checking a value that only actually
+        // changes once every several emulator frames; scheduling the next
+        // check 50ms out instead checks periodically without wasting
+        // effort in between.
         function poll() {
             if (cpu.read(DEVELMENT_ADDRESS) !== 0 || Date.now() > deadline) {
                 resolve();
@@ -161,6 +197,12 @@ function waitForDevelMode(apple2: Apple2, timeoutMs = 1500): Promise<void> {
 let popInjectionPromise: Promise<void> | null = null;
 
 function ensurePopActive(apple2: Apple2): Promise<void> {
+    // `Promise.resolve()` creates an already-settled Promise with no
+    // value — used here so this function can always return a Promise
+    // (whoever calls it always does `await ensurePopActive(...)`)
+    // regardless of whether there's actually anything to wait for. If dev
+    // mode is already on, `await`ing an already-resolved Promise just
+    // continues on the next microtask tick, effectively immediately.
     if (apple2.getCPU().read(DEVELMENT_ADDRESS) !== 0) {
         return Promise.resolve();
     }
@@ -180,6 +222,12 @@ async function invokeCheat(apple2: Apple2, canvas: HTMLCanvasElement, cheat: Che
         await ensurePopActive(apple2);
     }
     const { action } = cheat;
+    // This is the discriminated-union narrowing mentioned at `CheatAction`'s
+    // definition in action: TypeScript knows `action.text` is only valid
+    // inside this `if` branch (where `action.type === 'sequence'` has
+    // been confirmed) and that `action` must be the other variant — with
+    // `.key`/`.ctrl` — inside the `else`, without needing any further
+    // type assertion.
     if (action.type === 'sequence') {
         apple2.getIO().setKeyBuffer(action.text);
     } else {
@@ -202,6 +250,13 @@ function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas
         const trigger = document.createElement('button');
         trigger.type = 'button';
         trigger.className = 'cheat-trigger';
+        // `aria-label` is an accessibility attribute: it tells screen
+        // readers (and other assistive tech) what to announce for this
+        // element instead of reading its visible text content literally
+        // — useful here because the button's actual visible content is
+        // split across a `<kbd>` (the keys) and a `<span>` (the
+        // description), which would otherwise be read as two disconnected
+        // fragments rather than one coherent phrase.
         trigger.setAttribute('aria-label', `Send ${keys}: ${label}`);
         const kbd = document.createElement('kbd');
         kbd.textContent = keys;
@@ -212,8 +267,18 @@ function buildList(codes: CheatCode[], className: string, apple2: Apple2, canvas
         trigger.addEventListener('click', () => {
             void invokeCheat(apple2, canvas, cheat).then(() => {
                 trigger.classList.remove('cheat-trigger-sent');
-                // Force a reflow so re-adding the class restarts the CSS
-                // animation even if the same cheat is tapped again quickly.
+                // Reading `.offsetWidth` (a layout-dependent property)
+                // forces the browser to actually recompute layout right
+                // now, synchronously — called "forcing a reflow." Without
+                // it, removing and immediately re-adding the same CSS
+                // class could get batched into a single visual update by
+                // the browser, meaning the animation triggered by that
+                // class wouldn't visibly restart if the same cheat is
+                // tapped twice in a row; forcing the browser to "notice"
+                // the class was removed before adding it back closes that
+                // gap. `void` here just discards the read value — the
+                // point is the side effect of reading it, not the number
+                // itself.
                 void trigger.offsetWidth;
                 trigger.classList.add('cheat-trigger-sent');
             });

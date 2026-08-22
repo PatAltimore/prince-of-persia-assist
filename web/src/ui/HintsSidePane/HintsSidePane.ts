@@ -30,6 +30,16 @@ function formatRelativeTime(timestamp: number): string {
     return `${minutes}m ago`;
 }
 
+// LEARNING NOTE — this file's `rowsByCategory: Map<string, ActionLogRow>`
+// (see renderActionLogSection below) is a small hand-rolled version of
+// what UI frameworks like React call "keyed reconciliation": rather than
+// re-creating every DOM element whenever the underlying data changes,
+// each stable identity (there, a `key` prop on a list item; here, the
+// action's `category` string) is mapped to one persistent DOM node that
+// gets its *content* updated in place across renders. It's more manual
+// work to write by hand than using a framework, but the underlying idea —
+// matching old and new data by a stable key, rather than by position or
+// wholesale replacement — is the same.
 interface ActionLogRow {
     item: HTMLLIElement;
     time: HTMLElement;
@@ -47,6 +57,11 @@ function buildActionLogRow(filenames: string[], wireLink: (link: HTMLAnchorEleme
 
     const links = document.createElement('span');
     links.className = 'action-log-links';
+    // `.forEach((item, i) => ...)` — the optional second callback
+    // parameter is the element's index in the array — is handy whenever
+    // the logic needs to know *where* in the list an element is, like
+    // here: only add a separating space before every filename except the
+    // first one (`i > 0`).
     filenames.forEach((filename, i) => {
         if (i > 0) {
             links.appendChild(document.createTextNode(' '));
@@ -164,6 +179,14 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
         });
     }
 
+    // The Page Visibility API: `document.visibilityState` reflects
+    // whether the current tab is actually the one on screen (`'visible'`)
+    // or hidden behind another tab/window/minimized (`'hidden'`), and
+    // `'visibilitychange'` fires on `document` any time that flips —
+    // including when a link with `target="_blank"` opens a new tab
+    // (making this one hidden) and again when the player switches back to
+    // it (making it visible again), which is exactly the pair of moments
+    // this feature cares about.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && pausedForCodeMuseum) {
             pausedForCodeMuseum = false;
@@ -209,6 +232,13 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
         renderActionLogSection(actionLogList, actionLogEmpty, actionLogRows, wireCodeMuseumLink);
     }
 
+    // 'pointerenter'/'pointerleave' (as opposed to 'pointerover'/'pointerout',
+    // which also fire when the pointer moves between a parent and its
+    // children) only fire when the pointer crosses this specific
+    // element's outer boundary — exactly "did the mouse/finger enter or
+    // leave this list as a whole," without needing to filter out spurious
+    // events from moving between the `<li>`s inside it. See
+    // TouchControls.ts's notes for more on Pointer Events generally.
     actionLogList.addEventListener('pointerenter', () => {
         renderSuppressed = true;
     });
@@ -222,7 +252,12 @@ export function renderHintsSidePane(container: HTMLElement): { update: (apple2: 
 
     requestActionLogRender();
     onActionLogged(requestActionLogRender);
-    // Keeps "12s ago" from going stale even when nothing new gets logged.
+    // `setInterval(fn, ms)` — unlike `setTimeout` (see RewindBuffer.ts's
+    // note) — keeps calling `fn` repeatedly, once every `ms` milliseconds,
+    // forever (or until `clearInterval` is called, which nothing here
+    // ever does — this timer is meant to run for the whole page's
+    // lifetime). Keeps "12s ago" from going stale even when nothing new
+    // gets logged.
     setInterval(requestActionLogRender, 10000);
 
     const rootLink = document.createElement('a');

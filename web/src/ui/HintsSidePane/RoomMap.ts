@@ -156,6 +156,13 @@ const IMPORTANT_LABELS: Record<ImportantKind, string> = {
     exit: 'stairs',
 };
 
+// LEARNING NOTE — this file leans heavily on `Map<K, V>` (a key-value
+// lookup table — see ActionLog.ts's note for the fuller explanation of
+// why a Map rather than a plain `{}` object) and `Set<T>` (a collection
+// of unique values, used below for "which screens has the player visited"
+// and "which item types are on this screen" — adding the same value
+// twice is a no-op, and checking membership with `.has()` is fast
+// regardless of how many screens/levels have been explored).
 function readScreenLinks(auxRam: Uint8Array): Map<number, ScreenLinks> {
     const links = new Map<number, ScreenLinks>();
     for (let screen = 1; screen <= SCREEN_COUNT; screen++) {
@@ -182,6 +189,13 @@ function readImportantScreens(auxRam: Uint8Array): Map<number, Set<ImportantKind
         const base = BLUETYPE_AUX_ADDRESS + (screen - 1) * TILES_PER_SCREEN;
         let kinds: Set<ImportantKind> | undefined;
         for (let tile = 0; tile < TILES_PER_SCREEN; tile++) {
+            // `&` (bitwise AND) applies `PIECE_ID_MASK` (`0x1f`, i.e. the
+            // binary pattern `00011111`) one bit at a time, keeping only
+            // the bottom 5 bits of the byte and zeroing the top 3 — the
+            // "unrelated flags" mentioned in this file's opening comment.
+            // This is the same kind of bit-level filtering a 6502 program
+            // itself would do with an `AND` instruction; JS's `&` operator
+            // behaves identically.
             const pieceId = auxRam[base + tile] & PIECE_ID_MASK;
             let kind: ImportantKind | undefined;
             if (pieceId === PIECE_ID_SWORD) {
@@ -192,6 +206,13 @@ function readImportantScreens(auxRam: Uint8Array): Map<number, Set<ImportantKind
                 kind = 'exit';
             }
             if (kind) {
+                // `??=` ("logical nullish assignment") is shorthand for
+                // `kinds = kinds ?? new Set()` — "if `kinds` is currently
+                // null/undefined, assign it this new value; otherwise
+                // leave it alone." It lazily creates the Set only the
+                // first time this screen turns out to have *any*
+                // important tile, rather than allocating one upfront for
+                // every screen whether it needs it or not.
                 kinds ??= new Set();
                 kinds.add(kind);
             }
@@ -222,6 +243,19 @@ function readImportantScreens(auxRam: Uint8Array): Map<number, Set<ImportantKind
  * findJumpEdges(), which is what actually surfaces these to the player
  * instead of just leaving them as an unexplained gap in the grid.
  */
+// LEARNING NOTE — this is a breadth-first search (BFS), a standard way to
+// explore a graph (here, screens connected by left/right/up/down links)
+// one "layer" out from a starting point at a time: visit `start`, then
+// everything directly reachable from it, then everything reachable from
+// *those* screens that hasn't been seen yet, and so on. The `queue` array
+// is what makes it breadth-first specifically: `.push()` adds newly
+// discovered screens to the *back*, and `.shift()` (below) always takes
+// the next one to process off the *front* — first in, first out — so the
+// search finishes an entire ring of equally-distant screens before moving
+// further out. (Swapping `.shift()` for `.pop()`, taking from the same
+// end items are added to, turns this into a *depth-first* search instead
+// — it would still visit every reachable screen, just in a different
+// order, diving down one path as far as possible before backtracking.)
 function layoutScreens(
     links: Map<number, ScreenLinks>,
     start: number
@@ -234,9 +268,21 @@ function layoutScreens(
     coords.set(start, { x: 0, y: 0 });
     const queue = [start];
     while (queue.length > 0) {
+        // `.shift()!` removes and returns the front element (see the BFS
+        // note above) — the `!` asserts it won't be `undefined`, which
+        // holds here because this line only runs inside the loop's
+        // `queue.length > 0` guard.
         const screen = queue.shift()!;
         const { x, y } = coords.get(screen)!;
         const link = links.get(screen)!;
+        // An array of `[value, value, value]` tuples where each element
+        // has a *different* meaning by position (which neighbor screen
+        // number, and its x/y coordinate) is a lightweight alternative to
+        // defining a whole extra named interface just for this one local
+        // loop — reasonable when there are only a couple of fields and
+        // the array is never passed elsewhere, but an interface (like
+        // `ScreenLinks`/`Coord` above) is usually clearer once there's
+        // more than a couple of fields or the shape needs to be reused.
         const neighbors: Array<[number, number, number]> = [
             [link.left, x - 1, y],
             [link.right, x + 1, y],
@@ -339,6 +385,15 @@ export function renderRoomMap(
     // land in a grid-adjacent cell — see findJumpEdges()'s doc comment for
     // why that happens and why it's drawn explicitly rather than treated
     // as a layout bug.
+    //
+    // `document.createElement('svg')` (the way every other element on
+    // this page gets created) wouldn't work for SVG elements: the DOM
+    // distinguishes elements by "namespace" as well as tag name, and SVG
+    // tags live in a different XML namespace than ordinary HTML ones.
+    // `createElementNS(namespaceURI, tagName)` is the namespace-aware
+    // version — every SVG element created in this file (see `<line>`
+    // elements further down) needs this same call, with the same fixed
+    // namespace URI, instead of the plain `createElement`.
     const connectorsSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     connectorsSvg.setAttribute('class', 'room-map-connectors');
     gridWrap.appendChild(connectorsSvg);
@@ -406,12 +461,29 @@ export function renderRoomMap(
             // the border/background that would give away the room's shape
             // or connections — a middle ground between full fog and a full
             // reveal, and the whole point of a *hints* tool.
+            // `!!kinds` — a double negation — converts any value to a
+            // strict `boolean`: the first `!` turns `kinds` (a `Set` or
+            // `undefined`) into a boolean that's the *opposite* of what's
+            // wanted (`true` when `kinds` is undefined, since undefined is
+            // "falsy"), and the second `!` flips it back to the intended
+            // meaning ("is `kinds` present at all"). It's a common
+            // shorthand for "coerce to boolean" without spelling out
+            // `kinds !== undefined`.
             const isImportantHint = !isVisited && !isFrontier && !!kinds;
             const isHidden = !isVisited && !isFrontier && !isImportantHint;
             if (!isHidden) {
                 shown.add(screen);
             }
 
+            // `element.classList.toggle(className, force)` — with the
+            // second argument given — isn't really a "toggle" (flip
+            // whatever it currently is) so much as a conditional
+            // set-or-remove: add the class if `force` is true, remove it
+            // if false, regardless of whatever state it was already in.
+            // That's what lets this code just declare "here's what should
+            // be true right now" every time `renderVisibility` runs,
+            // without needing to track or compare against the previous
+            // frame's state first.
             cell.classList.toggle('room-map-hidden', isHidden);
             cell.classList.toggle('room-map-frontier', isFrontier);
             cell.classList.toggle('room-map-important-hint', isImportantHint);
@@ -424,6 +496,11 @@ export function renderRoomMap(
                 }
             }
             cell.textContent = text;
+            // A `Set` doesn't have `.map()`/`.join()` (those are array
+            // methods) — `[...kinds]` spreads the Set's values out into a
+            // plain array first (Sets, like Maps, are "iterable," which
+            // is what makes spreading them into an array possible at
+            // all), which can then be mapped and joined normally.
             cell.title = kinds
                 ? [...kinds].map((k) => IMPORTANT_LABELS[k]).join(', ')
                 : '';
@@ -463,6 +540,15 @@ export function renderRoomMap(
             return;
         }
 
+        // A standard "find the bounding box" scan: `layoutScreens` placed
+        // each screen at a signed (x, y) coordinate relative to the start
+        // screen at (0, 0), so some screens end up at negative
+        // coordinates (up/left of the start). Starting `min`/`max` at
+        // `Infinity`/`-Infinity` guarantees the very first real value
+        // seen immediately replaces them — any actual number is smaller
+        // than `Infinity` and larger than `-Infinity` — which is a common
+        // trick for "haven't seen any values yet" initial state in a
+        // min/max scan.
         let minX = Infinity;
         let maxX = -Infinity;
         let minY = Infinity;
@@ -476,12 +562,25 @@ export function renderRoomMap(
 
         const numCols = maxX - minX + 1;
         const numRows = maxY - minY + 1;
+        // CSS Grid lays out `grid`'s children into a table-like structure
+        // of columns and rows; `gridTemplateColumns`/`gridTemplateRows`
+        // define how many there are and each one's size —
+        // `repeat(numCols, 34px)`, for instance, means "numCols columns,
+        // each exactly 34px wide." Setting this from JS (rather than a
+        // fixed value in style.css) is necessary because the grid's
+        // actual size depends on how many screens a given level's layout
+        // turns out to need, which isn't known until runtime.
         grid.style.gridTemplateColumns = `repeat(${numCols}, ${CELL_WIDTH_PX}px)`;
         grid.style.gridTemplateRows = `repeat(${numRows}, ${CELL_HEIGHT_PX}px)`;
 
         for (const [screen, { x, y }] of coords) {
             const cell = document.createElement('div');
             cell.className = 'room-map-cell';
+            // Each cell then places *itself* into a specific column/row
+            // of that grid (CSS Grid numbers them starting at 1, not 0 —
+            // hence the `+ 1`). `x - minX` shifts every screen's signed
+            // coordinate so the leftmost/topmost one lands at column/row
+            // 1, since CSS Grid has no concept of a "negative" column.
             cell.style.gridColumn = String(x - minX + 1);
             cell.style.gridRow = String(y - minY + 1);
             grid.appendChild(cell);

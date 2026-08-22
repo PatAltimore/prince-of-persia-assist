@@ -1,6 +1,33 @@
 import Apple2IO from 'js/apple2io';
 import { logAction } from '../emulator/ActionLog';
 
+/**
+ * LEARNING NOTES —
+ *
+ * **Pointer Events.** This file uses 'pointerdown'/'pointermove'/
+ * 'pointerup'/'pointercancel' rather than separate mouse ('mousedown',
+ * etc.) and touch ('touchstart', etc.) event types. Pointer Events is a
+ * newer web standard that unifies mouse, touch, and pen/stylus input
+ * behind one API — a finger dragging on a phone and a mouse dragging on a
+ * desktop fire the exact same event types with the same properties
+ * (`.clientX`/`.clientY`, `.pointerId`), so this one set of listeners
+ * handles both without needing touch-specific and mouse-specific code
+ * paths.
+ *
+ * **`pointerId` and multi-touch.** A touchscreen can track several
+ * fingers touching the screen at once, each generating its own stream of
+ * pointer events tagged with a distinct `pointerId`. `joystickPointerId`
+ * below records *which* finger is currently dragging the joystick, so
+ * that a second finger tapping the fight button elsewhere on the screen
+ * (a different `pointerId`) doesn't get mistaken for joystick input, and
+ * so a stray pointermove from an unrelated pointer is ignored.
+ *
+ * **Pointer capture.** `setPointerCapture(id)` (used below) asks the
+ * browser to keep routing that pointer's future events to this element
+ * specifically, even if the finger/mouse physically moves outside its
+ * boundaries — normally, dragging past an element's edge would start
+ * delivering events to whatever's *now* underneath the pointer instead.
+ */
 const BASE_RADIUS_PX = 60;
 
 // Below this fraction of the radius, treat the stick as centered rather
@@ -45,6 +72,17 @@ export function attachTouchControls(
             return;
         }
         engaged = true;
+        // `new KeyboardEvent(...)` followed by `canvas.dispatchEvent(...)`
+        // *manufactures* a synthetic keyboard event and fires it at the
+        // canvas exactly as if a real key had been pressed — this is how
+        // a touch gesture can trigger the game's own Ctrl+J keyboard
+        // shortcut without the physical keyboard being involved at all.
+        // `{ bubbles: true } as const` is a small TypeScript detail: without
+        // `as const`, TypeScript would infer the object's `bubbles`
+        // property as the general type `boolean`; `as const` narrows it to
+        // the specific literal type `true`, which happens to matter here
+        // because `{ ...eventOpts }` (the spread below) needs its shape to
+        // exactly match what `KeyboardEventInit` expects.
         const eventOpts = { bubbles: true } as const;
         canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ...eventOpts }));
         canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ...eventOpts }));
@@ -163,6 +201,34 @@ export function attachTouchControls(
     // magnitude to the full radius removes that ambiguity — every
     // direction now lands cleanly on one of the 8 states, same as a
     // classic digital/microswitch joystick.
+    // LEARNING NOTE — the trigonometry here, worked through step by step:
+    //
+    // `Math.hypot(rawDx, rawDy)` computes √(dx² + dy²) — the straight-line
+    // distance the finger has moved from the origin, by the Pythagorean
+    // theorem. That's the drag's *magnitude*, independent of direction.
+    //
+    // `Math.atan2(rawDy, rawDx)` gives the drag's *angle*, as a value in
+    // radians (the unit most JS math functions use instead of degrees —
+    // a full circle is 2π radians instead of 360°). Plain `Math.atan` only
+    // takes one argument (a ratio) and can't tell "up-right" from
+    // "down-left", since both give the same ratio of dy to dx; `atan2`
+    // takes dy and dx as *separate* arguments specifically so it can look
+    // at their individual signs and return the correct angle all the way
+    // around the circle, not just one quadrant of it.
+    //
+    // `step = Math.PI / 4` is 45° expressed in radians (a half-turn is π
+    // radians, or 180°, so an eighth-turn is π/4). Dividing the actual
+    // angle by that step, rounding to the nearest whole number, then
+    // multiplying back by the step is a standard "round to the nearest
+    // multiple of X" trick — it snaps whatever angle the drag actually
+    // was to the nearest of the 8 compass directions (0°, 45°, 90°, ...).
+    //
+    // Finally, `Math.cos(angle)`/`Math.sin(angle)` convert that snapped
+    // angle back into x/y coordinates on a circle of radius 1 (this is
+    // the literal definition of sine and cosine — the x and y coordinates
+    // of the point at a given angle around a unit circle) — multiplying
+    // by `BASE_RADIUS_PX` scales that unit circle up to the joystick's
+    // actual pixel radius.
     function snapToCompass(rawDx: number, rawDy: number): { dx: number; dy: number } {
         const dist = Math.hypot(rawDx, rawDy);
         if (dist < BASE_RADIUS_PX * DEADZONE_RATIO) {
@@ -193,6 +259,15 @@ export function attachTouchControls(
             logAction('fight', 'Fight / draw sword / pick up', ['CTRL.S', 'CTRLSUBS.S']);
         };
         const release = () => io.buttonDown(0, false);
+        // Three different events all trigger the same release logic,
+        // because there are three different ways a "press" can end:
+        // 'pointerup' is the normal case (finger/mouse lifted while still
+        // over the button); 'pointercancel' fires when the browser itself
+        // interrupts the gesture (e.g. an incoming phone call, or the OS
+        // deciding it's actually a screen-scroll gesture); 'pointerleave'
+        // fires if the finger slides off the button's edge without ever
+        // lifting. Without all three, some real-world release paths would
+        // leave the button stuck "held down" from the game's perspective.
         el.addEventListener('pointerdown', press);
         el.addEventListener('pointerup', release);
         el.addEventListener('pointercancel', release);

@@ -34,6 +34,11 @@ export function attachRewindScrubber(
         }
     };
 
+    // `slider.value` is always a *string* (every form input's `.value` is
+    // — HTML has no separate "number" data type at the DOM level, even
+    // for `<input type="range">`), so `Number(...)` converts it to an
+    // actual JS number wherever it needs to be used as one, like indexing
+    // into `buffer` below.
     slider.addEventListener('pointerdown', () => {
         if (buffer.length === 0) {
             return;
@@ -43,6 +48,13 @@ export function attachRewindScrubber(
         showThumbnailAt(Number(slider.value));
     });
 
+    // The 'input' event fires continuously *while* a range slider is
+    // being dragged — once per position change, not just once at the
+    // end — which is exactly what makes live scrubbing possible. Contrast
+    // with the 'change' event (not used here), which only fires once,
+    // after the drag ends; using 'change' instead would mean the game
+    // only visibly jumped to the final position, with no live preview
+    // while dragging.
     slider.addEventListener('input', () => {
         if (!scrubbing) {
             return;

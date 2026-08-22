@@ -16,6 +16,14 @@ export interface SaveMenuElements {
     loadCancelBtn: HTMLButtonElement;
 }
 
+// `.toLocaleString(locale, options)` formats a date/time the way a human
+// in a given locale (region/language) would expect to see it, rather than
+// a raw timestamp or a fixed format — passing `undefined` for the locale
+// tells it "use whatever locale the browser/OS is already configured
+// for," so a save made in a US-English browser might show "Jan 5, 2026,
+// 3:45 PM" while the same code in a different locale would format it
+// differently, all without this code needing to know anything about
+// locale-specific date conventions itself.
 function formatSavedAt(ts: number): string {
     return new Date(ts).toLocaleString(undefined, {
         dateStyle: 'medium',
@@ -50,6 +58,18 @@ export function attachSaveLoadMenu(
         loadCancelBtn,
     } = els;
 
+    // `<dialog>` is a built-in HTML element for modal (and non-modal)
+    // popups — `.showModal()` (below) opens it as a true modal, complete
+    // with a dimmed backdrop and trapping keyboard focus inside it, all
+    // handled natively by the browser rather than needing this app to
+    // build that behavior itself. Its `'close'` event fires whenever the
+    // dialog closes for *any* reason — clicking a cancel button that
+    // calls `.close()`, submitting the form, or (importantly) the browser's
+    // own built-in handling of the Escape key, which closes an open
+    // `<dialog>` automatically with no code required — which is why this
+    // listener catches every dismissal path in one place instead of
+    // needing separate refocus logic wherever `.close()` gets called
+    // explicitly.
     saveDialog.addEventListener('close', () => canvas.focus());
     loadDialog.addEventListener('close', () => canvas.focus());
 
@@ -64,6 +84,14 @@ export function attachSaveLoadMenu(
     saveCancelBtn.addEventListener('click', () => saveDialog.close());
 
     saveForm.addEventListener('submit', (event) => {
+        // A `<form>`'s default behavior on submit is to navigate the
+        // page (reloading it, in the simplest case with no `action`
+        // attribute) — `preventDefault()` here stops that, since this
+        // form's submission is meant to be handled entirely by this JS
+        // instead. Using a real `<form>` at all (rather than just a plain
+        // button) is what gives this "press Enter in the text field to
+        // submit" for free, a common HTML/accessibility convention this
+        // app gets to keep without extra code.
         event.preventDefault();
         const name = saveNameInput.value.trim();
         if (!name) {
@@ -72,6 +100,14 @@ export function attachSaveLoadMenu(
         try {
             saveGame(name, captureSnapshot(apple2));
         } catch (err) {
+            // `catch (err)` — like several other `catch` blocks across
+            // this codebase — receives a value of type `unknown` in
+            // strict TypeScript, not `Error`, because JavaScript actually
+            // allows `throw`ing *any* value, not just Error objects.
+            // `err instanceof Error` checks (and narrows the type)
+            // before assuming `.message` exists; the `: String(err)`
+            // fallback handles the rarer case where something else
+            // entirely was thrown.
             saveError.textContent = err instanceof Error ? err.message : String(err);
             saveError.hidden = false;
             return;

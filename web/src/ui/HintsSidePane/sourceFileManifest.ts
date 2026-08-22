@@ -10,6 +10,12 @@ export interface SourceFileEntry {
     description: string;
 }
 
+// `SourceFileEntry[]` is just a plain array of objects each shaped like
+// the `SourceFileEntry` interface above — TypeScript checks every entry
+// in this list has exactly a `filename` and `description` string, so a
+// typo like `filenam` or a missing field would be a compile error here
+// rather than a silent bug discovered later in HintsSidePane.ts (which
+// reads this array).
 export const SOURCE_FILE_MANIFEST: SourceFileEntry[] = [
     { filename: 'MASTER.S', description: 'Game flow controller: boot, attract mode, save/load, level sequencing' },
     { filename: 'TOPCTRL.S', description: 'Top-level control loop — the main game state machine and level sequencing' },

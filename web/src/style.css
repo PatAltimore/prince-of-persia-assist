@@ -1,3 +1,48 @@
+/**
+ * LEARNING NOTES — concepts that recur throughout this file:
+ *
+ * - **The cascade & specificity.** When multiple CSS rules could apply to
+ *   the same element, the browser has to decide which one "wins." Two
+ *   things matter: specificity (roughly, how precisely a selector targets
+ *   an element — an id beats a class, a class beats a bare tag name) and
+ *   source order (among equally-specific rules, the one written later in
+ *   the file wins). This file hit a real bug from exactly this: search
+ *   for "wins the cascade" further down for the story of a rule that kept
+ *   losing to a later, equally-specific one until it was moved after it.
+ *
+ * - **Flexbox** (`display: flex`) lays out an element's children in a
+ *   single row or column that can grow/shrink/wrap to fill the available
+ *   space — used throughout this file for "arrange these things in a
+ *   line" layouts. **CSS Grid** (`display: grid`) is the two-dimensional
+ *   counterpart — rows *and* columns at once — used where the shape is
+ *   genuinely a grid, most notably the room map (see RoomMap.ts, which
+ *   sets `.room-map-grid`'s row/column counts from JS since they depend
+ *   on the current level).
+ *
+ * - **`position: relative` + `position: absolute` pairing.** An element
+ *   with `position: absolute` is positioned relative to its nearest
+ *   ancestor that has `position` set to anything other than the default
+ *   (`static`) — so `position: relative` on a parent (often with no other
+ *   visible effect of its own) is what "anchors" an absolutely-positioned
+ *   child to that parent's box rather than to the whole page. Several
+ *   elements in this file use exactly this pairing (e.g. `.canvas-wrap`
+ *   relative, `.rewind-thumbnail` absolute within it).
+ *
+ * - **Media queries** (`@media (...) { ... }`) apply a block of rules
+ *   only when some condition about the browser/device is true — screen
+ *   width, in the "not enough room for auto the 592px canvas" query just
+ *   below, or pointer precision, in the coarse-vs-fine-pointer query
+ *   further down that decides whether to show the touch controls or the
+ *   keyboard legend.
+ */
+/* `:root` targets the document's top-level element (`<html>`) — used
+   instead of `html { ... }` mostly by convention, for properties (like
+   these two) meant to apply globally. `color-scheme: dark` doesn't touch
+   any of *this* app's own colors (those are all set explicitly below) —
+   it tells the browser this page is dark-themed, which affects things
+   this stylesheet doesn't otherwise control, like the default look of
+   native form controls (buttons, `<input type="range">`, scrollbars) and
+   which color scheme browser UI chrome coordinates with. */
 :root {
     color-scheme: dark;
     font-family: system-ui, sans-serif;
@@ -42,6 +87,12 @@ body {
     position: relative;
     width: 592px;
     height: 416px;
+    /* `max-width: 100%` lets this shrink below 592px on a narrow viewport
+       (mobile) rather than causing horizontal overflow, while `width: 592px`
+       still governs the size whenever there's room for it. `aspect-ratio`
+       keeps height scaling in step with width once it does shrink, so the
+       game canvas inside never gets stretched out of its correct 592:416
+       proportions. */
     max-width: 100%;
     aspect-ratio: 592 / 416;
 }
@@ -49,6 +100,11 @@ body {
 canvas#screen {
     background: #000;
     border: 1px solid #333;
+    /* Without this, scaling the canvas up or down (which happens
+       whenever it's not shown at its native 592×416 resolution) would
+       blend/blur adjacent pixels together by default — appropriate for a
+       photo, but it turns this game's crisp, blocky Apple II graphics
+       muddy. `pixelated` keeps hard, blocky edges at any scale instead. */
     image-rendering: pixelated;
     width: 100%;
     height: 100%;
@@ -179,6 +235,15 @@ canvas#screen {
     background: rgba(108, 204, 255, 0.16);
 }
 
+/* `@keyframes` defines a named sequence of styles over time (here, just a
+   start and end point, but a keyframe animation can have as many
+   in-between steps as needed) — `animation: cheat-sent-flash 0.6s ease-out`
+   on `.cheat-trigger-sent` below plays that named sequence over 0.6
+   seconds, easing out (starting fast, slowing toward the end) rather than
+   at a constant speed. CheatCodes.ts toggles this exact class off and
+   back on (see its "force a reflow" comment) each time a cheat is tapped,
+   which is what makes the flash replay on every tap rather than only
+   once. */
 .cheat-trigger-sent {
     animation: cheat-sent-flash 0.6s ease-out;
 }
@@ -725,7 +790,12 @@ dialog menu {
    `any-pointer: fine` checks every input mechanism, not just the primary
    one, so it stays true on that same hybrid hardware (the mouse/trackpad
    is still there) while correctly staying false on an actual phone or
-   tablet with no mouse at all — which is what should get the touch UI. */
+   tablet with no mouse at all — which is what should get the touch UI.
+
+   Syntax note: `not (...)` inside a media query negates just that one
+   feature test, and `and` combines conditions the same way it would in a
+   plain sentence — read the whole thing as "coarse pointer, and no fine
+   pointer anywhere." */
 @media (pointer: coarse) and (not (any-pointer: fine)) {
     .key-legend {
         display: none;

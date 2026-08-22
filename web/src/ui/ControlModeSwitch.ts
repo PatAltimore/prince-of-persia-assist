@@ -1,7 +1,17 @@
 const STORAGE_KEY = 'pop-assist-control-mode';
 
+// A union of *string* literals (rather than diskSwap.ts's `1 | 2`) — same
+// underlying idea, just with text values instead of numbers: `ControlMode`
+// can only ever be exactly `'touch'` or `'keyboard'`, nothing else.
 type ControlMode = 'touch' | 'keyboard';
 
+// A type guard again (see SnapshotSerializer.ts's `isEncodedUint8Array`
+// for the fuller explanation of the `value is X` return type) — needed
+// here specifically because `localStorage.getItem` returns a plain
+// `string | null` with no guarantee it's one of the two valid modes (a
+// user could have manually edited it in DevTools, or an older version of
+// this app could have stored something else there); this both checks and
+// narrows in one step.
 function isControlMode(value: string | null): value is ControlMode {
     return value === 'touch' || value === 'keyboard';
 }
@@ -25,6 +35,12 @@ export function attachControlModeSwitch(): void {
     const toTouchBtn = document.querySelector<HTMLButtonElement>('#switch-to-touch-btn')!;
     const toKeyboardBtn = document.querySelector<HTMLButtonElement>('#switch-to-keyboard-btn')!;
 
+    // Toggling a class on `<body>` (rather than on the specific elements
+    // being shown/hidden) is a common technique for "global" CSS state:
+    // style.css's rules like `body.force-touch-controls .key-legend` key
+    // off this one class anywhere it appears in the document, so a single
+    // toggle here can affect multiple, otherwise-unrelated elements
+    // without this file needing to know or care what they are.
     function apply(mode: ControlMode | null): void {
         document.body.classList.toggle('force-touch-controls', mode === 'touch');
         document.body.classList.toggle('force-keyboard-controls', mode === 'keyboard');
