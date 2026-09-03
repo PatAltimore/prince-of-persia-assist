@@ -584,12 +584,108 @@ canvas#screen {
 
 .rewind input[type='range'] {
     flex: 1;
+    /* `appearance: none` (with the `-webkit-` prefix Chrome/Safari/Edge
+       still need) strips the browser's default slider rendering so the
+       track/thumb pseudo-elements below take over completely — without
+       it, some of these custom styles get ignored in favor of the
+       platform's native look. */
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+    outline: none;
 }
 
+/* The track (the groove the thumb slides along) needs its own
+   vendor-prefixed pseudo-element per engine — Chrome/Safari/Edge and
+   Firefox don't share one. Redeclaring the same look on both keeps it
+   consistent regardless of browser. */
+.rewind input[type='range']::-webkit-slider-runnable-track {
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+}
+
+.rewind input[type='range']::-moz-range-track {
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+}
+
+/* The thumb (the draggable handle) — sized well past the browser default
+   (~12-16px) specifically so it's easy to land a finger on while
+   dragging on a touchscreen, not just easy to see. Same glossy-sphere
+   treatment as the touch joystick's ball (TouchControls.ts) for visual
+   consistency. */
+.rewind input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    margin-top: -11px; /* centers the 28px thumb on the 6px track (28-6)/2 */
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 26%, #e2f6ff, #6cf 45%, #1c6a97 100%);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+
+.rewind input[type='range']::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 26%, #e2f6ff, #6cf 45%, #1c6a97 100%);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+
+.rewind input[type='range']:disabled::-webkit-slider-thumb {
+    background: #555;
+    border-color: rgba(255, 255, 255, 0.2);
+    cursor: default;
+}
+
+.rewind input[type='range']:disabled::-moz-range-thumb {
+    background: #555;
+    border-color: rgba(255, 255, 255, 0.2);
+    cursor: default;
+}
+
+/* Round and glossy, matching the on-screen joystick/button treatment
+   (TouchControls.ts) instead of a plain rectangular browser button — same
+   family of radial-gradient-plus-bevel styling, in the app's blue accent
+   rather than the fight button's red, since this is a utility control
+   rather than a game action. */
 #rewind-5s-btn {
-    padding: 0.6rem 1.1rem;
-    font-size: 1rem;
-    border-radius: 6px;
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 26%, #d8f2ff, #6cf 45%, #1c6a97 100%);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        inset 0 3px 4px rgba(255, 255, 255, 0.5),
+        inset 0 -4px 6px rgba(0, 0, 0, 0.35);
+    color: #06202e;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.15;
+    text-align: center;
+}
+
+#rewind-5s-btn:active {
+    background: radial-gradient(circle at 32% 26%, #6cf, #1c6a97 60%, #0d3a52 100%);
+    box-shadow:
+        inset 0 3px 6px rgba(0, 0, 0, 0.55),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.15);
+    transform: translateY(2px);
 }
 
 .key-legend {
