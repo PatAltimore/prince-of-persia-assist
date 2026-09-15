@@ -44,14 +44,17 @@ export interface GamepadControlsHandle {
  * anything about gamepads at all.
  *
  * Unlike TouchControls.ts, joystick mode is engaged as soon as a gamepad
- * is detected (on the browser's 'gamepadconnected' event) rather than
- * waiting for the first real movement — sidestepping the calibration race
- * documented in TouchControls.ts's pointerdown handler entirely, since
- * there's no way for a freshly-connected gamepad to already be holding a
- * direction at the exact instant it connects the way an off-center first
- * touch can. By the time a human reacts and actually moves the stick,
- * several emulator ticks have already passed — plenty of time for the
- * game to have processed the calibration keypress.
+ * is detected rather than waiting for the first real movement —
+ * sidestepping the calibration race documented in TouchControls.ts's
+ * pointerdown handler entirely, since there's no way for a freshly-detected
+ * gamepad to already be holding a direction at the exact instant it's
+ * detected the way an off-center first touch can. By the time a human
+ * reacts and actually moves the stick, several emulator ticks have already
+ * passed — plenty of time for the game to have processed the calibration
+ * keypress.
+ *
+ * Detection itself doesn't rely solely on the 'gamepadconnected' event —
+ * see findConnectedIndex below for why.
  */
 export function attachGamepadControls(io: Apple2IO, canvas: HTMLCanvasElement): GamepadControlsHandle {
     let engaged = false;
@@ -73,6 +76,26 @@ export function attachGamepadControls(io: Apple2IO, canvas: HTMLCanvasElement): 
         return { update: () => {}, isEngaged: () => false };
     }
 
+    function centerAndRelease(): void {
+        io.paddle(0, 0.5);
+        io.paddle(1, 0.5);
+        if (actionWasPressed) {
+            io.buttonDown(0, false);
+            actionWasPressed = false;
+        }
+    }
+
+    // 'gamepadconnected' only reliably fires for a controller that connects
+    // (or is first pressed) *after* the page has loaded and has focus — a
+    // controller that was already connected/paired (common for a wireless
+    // Xbox controller left on) often never fires it at all, per Chrome's
+    // own documented Gamepad API behavior, silently leaving this module
+    // permanently inert with no error of any kind. So this is a fast-path
+    // for the common "plugged in after load" case, not the only way
+    // connectedIndex gets set — findConnectedIndex()'s per-tick scan below
+    // (the same approach apple2js's own original gamepad.ts used:
+    // `navigator.getGamepads()[0]`, no event dependency at all) is what
+    // makes detection actually reliable.
     window.addEventListener('gamepadconnected', (e: GamepadEvent) => {
         connectedIndex = e.gamepad.index;
         engageJoystickMode();
@@ -81,14 +104,19 @@ export function attachGamepadControls(io: Apple2IO, canvas: HTMLCanvasElement): 
     window.addEventListener('gamepaddisconnected', (e: GamepadEvent) => {
         if (connectedIndex === e.gamepad.index) {
             connectedIndex = null;
-            io.paddle(0, 0.5);
-            io.paddle(1, 0.5);
-            if (actionWasPressed) {
-                io.buttonDown(0, false);
-                actionWasPressed = false;
-            }
+            centerAndRelease();
         }
     });
+
+    function findConnectedIndex(): number | null {
+        const pads = navigator.getGamepads();
+        for (let i = 0; i < pads.length; i++) {
+            if (pads[i]) {
+                return i;
+            }
+        }
+        return null;
+    }
 
     function dispatchStartKey(): void {
         // "Start" here means the same thing pressing Enter on a physical
@@ -105,7 +133,11 @@ export function attachGamepadControls(io: Apple2IO, canvas: HTMLCanvasElement): 
 
     function update(): void {
         if (connectedIndex === null) {
-            return;
+            connectedIndex = findConnectedIndex();
+            if (connectedIndex === null) {
+                return;
+            }
+            engageJoystickMode();
         }
         // `navigator.getGamepads()` returns a live-updating array (one
         // slot per USB/Bluetooth port the browser is tracking, most of
@@ -114,6 +146,12 @@ export function attachGamepadControls(io: Apple2IO, canvas: HTMLCanvasElement): 
         // frame; holding onto an old reference wouldn't see new input.
         const pad = navigator.getGamepads()[connectedIndex];
         if (!pad) {
+            // The pad vanished without a 'gamepaddisconnected' event ever
+            // reaching us (or reached us for a different index) — treat it
+            // the same as a proper disconnect rather than leaving stale
+            // paddle/button state stuck.
+            connectedIndex = null;
+            centerAndRelease();
             return;
         }
 
