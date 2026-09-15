@@ -10,7 +10,7 @@ import { snapToCompass, paddleValueFromOffset, dispatchJoystickCalibration } fro
 // standard, which covers Xbox/PlayStation-style controllers, the large
 // majority of what anyone actually plugs in.
 const BUTTON_ACTION = 0; // Xbox "A"
-const BUTTON_REWIND = 1; // Xbox "B"
+const BUTTON_REWIND = 2; // Xbox "X"
 const BUTTON_START = 9; // Xbox "Menu"/"Start" — browsers report it at this index either way
 const DPAD_UP = 12;
 const DPAD_DOWN = 13;
@@ -38,7 +38,7 @@ export interface GamepadControlsHandle {
  * real joystick would, from a connected gamepad (Xbox controller or
  * anything else the browser recognizes as "standard" layout): the left
  * stick/D-pad for movement, the "A" button for fight/draw sword/pick up,
- * "B" for the same 5-second rewind as the on-screen button/Backspace key
+ * "X" for the same 5-second rewind as the on-screen button/Backspace key
  * (see RewindScrubber.ts's attachRewindButton, whose returned handle this
  * takes as `rewindButton` so all three input paths share one
  * lookup/restore/refocus implementation), and Start for advancing the
