@@ -45,6 +45,7 @@ import { captureThumbnail } from './emulator/snapshot/thumbnail';
 import { attachRewindScrubber, attachRewindButton } from './ui/RewindScrubber';
 import { attachSaveLoadMenu } from './ui/SaveMenu';
 import { attachTouchControls } from './ui/TouchControls';
+import { attachGamepadControls } from './emulator/GamepadControls';
 import { attachControlModeSwitch } from './ui/ControlModeSwitch';
 
 const DISK_A_URL = '/disks/PrinceOfPersia_5.25_SideA.nib';
@@ -107,6 +108,12 @@ async function main() {
     let roomMapHandle: { update: () => void; debug: () => unknown } | undefined;
     let diskSwapHandle: { onTick: () => void } | undefined;
     let touchControlsHandle: { isEngaged: () => boolean } | undefined;
+    // Unlike the other handles above, this one doesn't need to wait for
+    // the emulator to boot (it only touches `navigator.getGamepads()` and
+    // the canvas, both available immediately) — see its creation below,
+    // right alongside touchControlsHandle for consistency instead of
+    // splitting gamepad setup across two different points in this file.
+    let gamepadControlsHandle: { update: () => void; isEngaged: () => boolean } | undefined;
     let sideABuffer: ArrayBuffer | undefined;
     let sideBBuffer: ArrayBuffer | undefined;
     const recorder = new RewindRecorder(
@@ -140,7 +147,8 @@ async function main() {
     // is this app's way of "riding along" on that same heartbeat rather
     // than polling on its own separate timer.
     const { apple2, disk2, cpu, audio } = await bootEmulator(canvas, () => {
-        setJoystickInputEnabled(apple2, touchControlsHandle?.isEngaged() ?? false);
+        gamepadControlsHandle?.update();
+        setJoystickInputEnabled(apple2, (touchControlsHandle?.isEngaged() ?? false) || (gamepadControlsHandle?.isEngaged() ?? false));
         recorder.onTick();
         scrubberHandle?.syncRange();
         roomMapHandle?.update();
@@ -157,6 +165,7 @@ async function main() {
         document.querySelector('#touch-joystick-thumb')!,
         document.querySelector('#touch-btn-0')!
     );
+    gamepadControlsHandle = attachGamepadControls(apple2.getIO(), canvas);
 
     // Debug handles, mirroring apple2js's own convention (window.apple2).
     // `window` is the browser's global object — anything attached to it
@@ -170,6 +179,7 @@ async function main() {
         __apple2: apple2,
         __rewindBuffer: rewindBuffer,
         __touchControls: touchControlsHandle,
+        __gamepadControls: gamepadControlsHandle,
         __audio: audio,
         __roomMap: roomMapHandle,
     });

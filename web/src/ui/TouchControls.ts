@@ -1,5 +1,6 @@
 import Apple2IO from 'js/apple2io';
 import { logAction } from '../emulator/ActionLog';
+import { snapToCompass, paddleValueFromOffset, dispatchJoystickCalibration } from '../emulator/JoystickMapping';
 
 /**
  * LEARNING NOTES —
@@ -72,22 +73,10 @@ export function attachTouchControls(
             return;
         }
         engaged = true;
-        // `new KeyboardEvent(...)` followed by `canvas.dispatchEvent(...)`
-        // *manufactures* a synthetic keyboard event and fires it at the
-        // canvas exactly as if a real key had been pressed — this is how
-        // a touch gesture can trigger the game's own Ctrl+J keyboard
-        // shortcut without the physical keyboard being involved at all.
-        // `{ bubbles: true } as const` is a small TypeScript detail: without
-        // `as const`, TypeScript would infer the object's `bubbles`
-        // property as the general type `boolean`; `as const` narrows it to
-        // the specific literal type `true`, which happens to matter here
-        // because `{ ...eventOpts }` (the spread below) needs its shape to
-        // exactly match what `KeyboardEventInit` expects.
-        const eventOpts = { bubbles: true } as const;
-        canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ...eventOpts }));
-        canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ...eventOpts }));
-        canvas.dispatchEvent(new KeyboardEvent('keyup', { key: 'j', ...eventOpts }));
-        canvas.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control', ...eventOpts }));
+        // See JoystickMapping.ts's dispatchJoystickCalibration doc comment
+        // for what this actually does and why — shared with
+        // GamepadControls.ts, which engages joystick mode the same way.
+        dispatchJoystickCalibration(canvas);
     }
 
     let joystickPointerId: number | null = null;
@@ -117,12 +106,8 @@ export function attachTouchControls(
     }
 
     function setPaddlesFromOffset(dx: number, dy: number) {
-        const nx = dx / BASE_RADIUS_PX;
-        const ny = dy / BASE_RADIUS_PX;
-        const x = clamp01((nx * 1.414 + 1) / 2.0);
-        const y = clamp01((ny * 1.414 + 1) / 2.0);
-        io.paddle(0, x);
-        io.paddle(1, y);
+        io.paddle(0, paddleValueFromOffset(dx, BASE_RADIUS_PX));
+        io.paddle(1, paddleValueFromOffset(dy, BASE_RADIUS_PX));
     }
 
     function resetJoystick() {
@@ -190,63 +175,14 @@ export function attachTouchControls(
     window.addEventListener('pointerup', endJoystickPointer);
     window.addEventListener('pointercancel', endJoystickPointer);
 
-    // POP only ever reads the joystick as one of 8 discrete directions
-    // anyway (JSTKX/JSTKY end up -1/0/+1 — see CTRLSUBS.S's cvtpdl,
-    // comparing the raw reading against calibrated thresholds), so free
-    // analog positioning on a touchscreen only added jitter: a drag meant
-    // to be pure "up" that wobbled a couple degrees off-axis could read as
-    // up-left one frame and up-right the next, which is exactly what made
-    // precise combos (hold a direction to run, then jump for a running
-    // long jump) unreliable. Snapping to the nearest 45° and pinning the
-    // magnitude to the full radius removes that ambiguity — every
-    // direction now lands cleanly on one of the 8 states, same as a
-    // classic digital/microswitch joystick.
-    // LEARNING NOTE — the trigonometry here, worked through step by step:
-    //
-    // `Math.hypot(rawDx, rawDy)` computes √(dx² + dy²) — the straight-line
-    // distance the finger has moved from the origin, by the Pythagorean
-    // theorem. That's the drag's *magnitude*, independent of direction.
-    //
-    // `Math.atan2(rawDy, rawDx)` gives the drag's *angle*, as a value in
-    // radians (the unit most JS math functions use instead of degrees —
-    // a full circle is 2π radians instead of 360°). Plain `Math.atan` only
-    // takes one argument (a ratio) and can't tell "up-right" from
-    // "down-left", since both give the same ratio of dy to dx; `atan2`
-    // takes dy and dx as *separate* arguments specifically so it can look
-    // at their individual signs and return the correct angle all the way
-    // around the circle, not just one quadrant of it.
-    //
-    // `step = Math.PI / 4` is 45° expressed in radians (a half-turn is π
-    // radians, or 180°, so an eighth-turn is π/4). Dividing the actual
-    // angle by that step, rounding to the nearest whole number, then
-    // multiplying back by the step is a standard "round to the nearest
-    // multiple of X" trick — it snaps whatever angle the drag actually
-    // was to the nearest of the 8 compass directions (0°, 45°, 90°, ...).
-    //
-    // Finally, `Math.cos(angle)`/`Math.sin(angle)` convert that snapped
-    // angle back into x/y coordinates on a circle of radius 1 (this is
-    // the literal definition of sine and cosine — the x and y coordinates
-    // of the point at a given angle around a unit circle) — multiplying
-    // by `BASE_RADIUS_PX` scales that unit circle up to the joystick's
-    // actual pixel radius.
-    function snapToCompass(rawDx: number, rawDy: number): { dx: number; dy: number } {
-        const dist = Math.hypot(rawDx, rawDy);
-        if (dist < BASE_RADIUS_PX * DEADZONE_RATIO) {
-            return { dx: 0, dy: 0 };
-        }
-        const step = Math.PI / 4;
-        const angle = Math.round(Math.atan2(rawDy, rawDx) / step) * step;
-        return {
-            dx: Math.cos(angle) * BASE_RADIUS_PX,
-            dy: Math.sin(angle) * BASE_RADIUS_PX,
-        };
-    }
-
     function updateFromPointer(e: PointerEvent) {
         if (!touchOrigin) {
             return;
         }
-        const { dx, dy } = snapToCompass(e.clientX - touchOrigin.x, e.clientY - touchOrigin.y);
+        // See JoystickMapping.ts's snapToCompass doc comment for the full
+        // trigonometry walkthrough — shared with GamepadControls.ts's
+        // analog-stick handling.
+        const { dx, dy } = snapToCompass(e.clientX - touchOrigin.x, e.clientY - touchOrigin.y, BASE_RADIUS_PX, DEADZONE_RATIO);
         setThumb(dx, dy);
         setPaddlesFromOffset(dx, dy);
     }
@@ -277,8 +213,4 @@ export function attachTouchControls(
     wireButton(button0);
 
     return { isEngaged: () => engaged };
-}
-
-function clamp01(v: number): number {
-    return Math.max(0, Math.min(1, v));
 }

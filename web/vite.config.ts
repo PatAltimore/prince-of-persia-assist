@@ -93,10 +93,56 @@ function apple2RamAliasingFix(): Plugin {
     };
 }
 
+/**
+ * js/apple2.ts's own run loop unconditionally calls `processGamepad(this.io)`
+ * (js/ui/gamepad.ts) every single tick, completely independent of anything
+ * in src/ — it was already doing this before GamepadControls.ts existed.
+ * Discovered by instrumenting Apple2IO.paddle during manual testing of the
+ * new gamepad feature: with any gamepad connected, paddle 0/1 read
+ * impossible values like 1.207 (see gamepad.ts's `(axes[0] * 1.414 + 1) /
+ * 2.0`, applied with NO clamping — unlike JoystickMapping.ts's
+ * paddleValueFromOffset, which clamps to 0..1 the same way apple2js's own
+ * comment in EmulatorController.ts assumed it would). Worse, since this
+ * runs *after* `this.tick()` (which is where GamepadControls.ts's own
+ * `update()` runs, via main.ts's tick callback), its unclamped, deadzone-
+ * free, D-pad-blind, single-gamepad-only (`navigator.getGamepads()[0]`,
+ * hardcoded) writes silently overwrote GamepadControls.ts's correct ones on
+ * every frame — GamepadControls.ts's careful 8-way snapping never actually
+ * reached the game. (Its button-mapping half is harmless today only by
+ * accident: gamepadMap stays empty unless `initGamepad()` is called, which
+ * nothing in src/ does.)
+ *
+ * Neutralizing the call — rather than editing gamepad.ts itself — keeps
+ * this a no-op if upstream ever changes gamepad.ts, and matches the
+ * in-memory-transform pattern already used above for apple2.ts's other two
+ * quirks, for the same "don't fight git submodule update" reasoning.
+ */
+function apple2DisableBuiltinGamepad(): Plugin {
+    return {
+        name: 'apple2js-disable-builtin-gamepad',
+        enforce: 'pre',
+        transform(code, id) {
+            if (!id.endsWith('vendor/apple2js/js/apple2.ts')) {
+                return null;
+            }
+            const target = 'processGamepad(this.io);';
+            const replacement =
+                '// processGamepad(this.io) intentionally disabled — see apple2DisableBuiltinGamepad in vite.config.ts';
+            if (!code.includes(target)) {
+                throw new Error(
+                    'apple2DisableBuiltinGamepad: expected processGamepad(this.io) call not found in apple2.ts — upstream may have changed; update this plugin in vite.config.ts.'
+                );
+            }
+            return { code: code.replace(target, replacement), map: null };
+        },
+    };
+}
+
 export default defineConfig({
     plugins: [
         apple2RomImportExtensionFix(),
         apple2RamAliasingFix(),
+        apple2DisableBuiltinGamepad(),
         dynamicImportVars({
             include: ['vendor/apple2js/js/**/*.ts'],
         }),
