@@ -158,6 +158,12 @@ async function main() {
     apple2Ref = apple2;
     roomMapHandle = renderRoomMap(document.querySelector('#tab-panel-map')!, apple2);
     renderCheatCodes(document.querySelector('#tab-panel-cheats')!, apple2, canvas);
+    // Created before attachGamepadControls (rather than down alongside
+    // attachRewindScrubber, where the on-screen button/Backspace wiring
+    // for this same action used to live) so its returned handle can be
+    // handed to the gamepad's B button below — all three input paths end
+    // up sharing this one lookup/restore/refocus implementation.
+    const rewindButtonHandle = attachRewindButton(rewind5sBtn, apple2, rewindBuffer, canvas, REWIND_BUTTON_SECONDS);
     touchControlsHandle = attachTouchControls(
         apple2.getIO(),
         canvas,
@@ -165,7 +171,7 @@ async function main() {
         document.querySelector('#touch-joystick-thumb')!,
         document.querySelector('#touch-btn-0')!
     );
-    gamepadControlsHandle = attachGamepadControls(apple2.getIO(), canvas);
+    gamepadControlsHandle = attachGamepadControls(apple2.getIO(), canvas, rewindButtonHandle);
 
     // Debug handles, mirroring apple2js's own convention (window.apple2).
     // `window` is the browser's global object — anything attached to it
@@ -241,7 +247,6 @@ async function main() {
         void resetToSideA();
     });
     scrubberHandle = attachRewindScrubber(rewindSlider, apple2, rewindBuffer, canvas, rewindThumbnail);
-    attachRewindButton(rewind5sBtn, apple2, rewindBuffer, canvas, REWIND_BUTTON_SECONDS);
 
     attachSaveLoadMenu(apple2, canvas, statusEl, {
         saveBtn: document.querySelector('#save-btn')!,

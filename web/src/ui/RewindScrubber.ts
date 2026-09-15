@@ -113,6 +113,11 @@ export function attachRewindScrubber(
  * emulator/keyboard.ts's own canvas listener (maps to DELETE on a real
  * Apple II keyboard) — this adds the rewind action alongside that, it
  * doesn't replace it.
+ *
+ * Returns a handle exposing the same `doRewind` action so other input
+ * sources (GamepadControls.ts's B button) can trigger it too, instead of
+ * each input source reimplementing the buffer lookup/restore/refocus
+ * sequence itself.
  */
 export function attachRewindButton(
     button: HTMLButtonElement,
@@ -120,7 +125,7 @@ export function attachRewindButton(
     buffer: RewindBuffer,
     canvas: HTMLElement,
     seconds: number
-): void {
+): { rewind: () => void } {
     const doRewind = () => {
         const index = buffer.indexSecondsAgo(seconds);
         if (index === undefined) {
@@ -144,4 +149,6 @@ export function attachRewindButton(
             doRewind();
         }
     });
+
+    return { rewind: doRewind };
 }
