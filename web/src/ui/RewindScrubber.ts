@@ -115,9 +115,36 @@ export function attachRewindScrubber(
  * doesn't replace it.
  *
  * Returns a handle exposing the same `doRewind` action so other input
- * sources (GamepadControls.ts's B button) can trigger it too, instead of
+ * sources (GamepadControls.ts's X button) can trigger it too, instead of
  * each input source reimplementing the buffer lookup/restore/refocus
  * sequence itself.
+ *
+ * `doRewind`'s actual work is deferred a tick via `queueMicrotask` rather
+ * than running inline — this matters because apple2.ts's own run loop
+ * (js/apple2.ts's `runFn`) calls `this.tick()` (main.ts's per-frame
+ * callback, which is what drives GamepadControls.ts's polling) *before*
+ * its own trailing `if (!this.paused) { this.runAnimationFrame =
+ * requestAnimationFrame(runFn) }` reschedule check. A gamepad button press
+ * reaches this function synchronously from inside that same call stack —
+ * so an inline `apple2.stop()` there cancels an animation-frame ID that's
+ * already mid-fire (a no-op; you can't cancel a callback that's already
+ * running), and the inline `apple2.run()` right after it resets
+ * `this.paused` back to `false` *before* the still-executing outer runFn
+ * reaches its own trailing check — which then also passes and reschedules
+ * itself. The result is two independent, un-cancellable animation-frame
+ * loops running forever afterward, each stepping the CPU and calling
+ * `tick()` once per real frame — confirmed by instrumenting
+ * `apple2.stats.frames`, whose growth rate exactly doubled (60fps to
+ * 120fps) after a single gamepad-triggered rewind, matching the reported
+ * "gameplay is very fast" symptom. Clicking the on-screen button or
+ * pressing Backspace never triggered this, because a DOM 'click'/'keydown'
+ * event handler always runs as its own separate task, never nested inside
+ * runFn's call stack, so `stop()` there always cancels a genuinely
+ * not-yet-fired frame. `queueMicrotask` defers the stop/restore/run
+ * sequence until after the *current* call stack (including runFn's own
+ * trailing reschedule) has fully unwound — so by the time it runs,
+ * `this.runAnimationFrame` holds a real, cancelable pending frame either
+ * way, regardless of which input path triggered it.
  */
 export function attachRewindButton(
     button: HTMLButtonElement,
@@ -127,19 +154,21 @@ export function attachRewindButton(
     seconds: number
 ): { rewind: () => void } {
     const doRewind = () => {
-        const index = buffer.indexSecondsAgo(seconds);
-        if (index === undefined) {
-            return;
-        }
-        const state = buffer.at(index);
-        if (!state) {
-            return;
-        }
-        apple2.stop();
-        restoreSnapshot(apple2, state);
-        buffer.truncateAfter(index);
-        apple2.run();
-        canvas.focus();
+        queueMicrotask(() => {
+            const index = buffer.indexSecondsAgo(seconds);
+            if (index === undefined) {
+                return;
+            }
+            const state = buffer.at(index);
+            if (!state) {
+                return;
+            }
+            apple2.stop();
+            restoreSnapshot(apple2, state);
+            buffer.truncateAfter(index);
+            apple2.run();
+            canvas.focus();
+        });
     };
 
     button.addEventListener('click', doRewind);
