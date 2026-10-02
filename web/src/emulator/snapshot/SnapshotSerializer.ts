@@ -16,6 +16,13 @@ export function captureSnapshot(apple2: Apple2): State {
 
 export function restoreSnapshot(apple2: Apple2, state: State): void {
     apple2.setState(state);
+    // setState() rewinds the CPU cycle counter, but Apple2IO's audio
+    // sample clock (`_sampleTime`) isn't part of its saved state and stays
+    // at the pre-rewind value — so `_tick()` sees `_sampleTime > now` and
+    // generates no samples until the CPU catches back up (silence for as
+    // long as was rewound). Resync it to the restored cycle count.
+    (apple2.getIO() as unknown as { _sampleTime: number })._sampleTime =
+        state.cpu.cycles;
 }
 
 // A plain string used as a "marker" property name, so `isEncodedUint8Array`
