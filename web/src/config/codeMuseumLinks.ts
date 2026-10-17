@@ -1,5 +1,5 @@
 /**
- * Code Museum (https://blue-rock-0e6a0831e.7.azurestaticapps.net) is a
+ * Code Museum (https://pataltimore.github.io/code-museum) is a
  * companion site with per-source-file explainer articles for this game.
  * Its deep-link format was confirmed directly from its rendered DOM (not
  * guessed): `#/prince-of-persia/<slug>`, where `<slug>` is the source
@@ -7,7 +7,7 @@
  * `#/prince-of-persia/mover`. Isolated here in one function so a routing
  * change on Code Museum's side is a one-file fix.
  */
-const CODE_MUSEUM_BASE = 'https://blue-rock-0e6a0831e.7.azurestaticapps.net';
+const CODE_MUSEUM_BASE = 'https://pataltimore.github.io/code-museum';
 
 export const CODE_MUSEUM_ROOT_URL = `${CODE_MUSEUM_BASE}/#/prince-of-persia`;
 

@@ -139,6 +139,8 @@ function apple2DisableBuiltinGamepad(): Plugin {
 }
 
 export default defineConfig({
+    // Relative base: GitHub Pages serves this repo from a /prince-of-persia-assist/ subpath.
+    base: './',
     plugins: [
         apple2RomImportExtensionFix(),
         apple2RamAliasingFix(),

@@ -2,7 +2,11 @@
 
 ADR-style log of judgment calls made during this project. Dated, with rationale, so they can be revisited if circumstances change.
 
-## 2026-08-15 — Hosting: Azure Static Web Apps (free tier)
+## 2026-10-17 — Hosting moved from Azure Static Web Apps to GitHub Pages
+
+Superseded the decision below: hosting is now GitHub Pages (no Azure resource or deployment secret to maintain). Pages serves from a repo subpath, so Vite uses `base: './'` and disk URLs derive from `import.meta.env.BASE_URL`. PR preview environments are no longer available.
+
+## 2026-08-15 — Hosting: Azure Static Web Apps (free tier) — superseded
 
 The app is a pure client-side static bundle (no server logic needed). This matches the hosting model already used by the companion Code Museum site, and Static Web Apps' free tier includes GitHub Actions CI/CD and PR preview environments, which App Service's free F1 tier doesn't offer as cleanly (and F1 sleeps on idle / has a CPU-minute quota that a static site doesn't need to pay for).
 
@@ -24,7 +28,7 @@ apple2js ships as a full standalone web app (`apple2js.html` + its own UI/settin
 
 ## 2026-08-15 — Hints panel: link out, don't embed
 
-The side panel links to Code Museum articles in a new tab (`target="_blank" rel="noopener"`) rather than iframing them. Code Museum's per-file deep-link format was confirmed directly from its rendered DOM: `#/prince-of-persia/<filename lowercased, ".S" stripped>` (e.g. `MOVER.S` → `#/prince-of-persia/mover`). This avoids any risk of the two Azure Static Web Apps' framing/CSP headers conflicting, at the cost of a tab switch instead of an inline view.
+The side panel links to Code Museum articles in a new tab (`target="_blank" rel="noopener"`) rather than iframing them. Code Museum's per-file deep-link format was confirmed directly from its rendered DOM: `#/prince-of-persia/<filename lowercased, ".S" stripped>` (e.g. `MOVER.S` → `#/prince-of-persia/mover`). This avoids any risk of the two sites' framing/CSP headers conflicting, at the cost of a tab switch instead of an inline view.
 
 ## 2026-08-15 — apple2shader (GPL-2.0) ships as a stub, not the real package
 

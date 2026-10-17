@@ -48,8 +48,8 @@ import { attachTouchControls } from './ui/TouchControls';
 import { attachGamepadControls } from './emulator/GamepadControls';
 import { attachControlModeSwitch } from './ui/ControlModeSwitch';
 
-const DISK_A_URL = '/disks/PrinceOfPersia_5.25_SideA.nib';
-const DISK_B_URL = '/disks/PrinceOfPersia_5.25_SideB.nib';
+const DISK_A_URL = `${import.meta.env.BASE_URL}disks/PrinceOfPersia_5.25_SideA.nib`;
+const DISK_B_URL = `${import.meta.env.BASE_URL}disks/PrinceOfPersia_5.25_SideB.nib`;
 
 // A raw (unencoded) snapshot for this game measures ~451KB (mostly the
 // ~233KB loaded disk image, plus ~166KB of RAM/aux-RAM — see
